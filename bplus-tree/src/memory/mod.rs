@@ -288,7 +288,7 @@ impl BPlusTree {
                     index.keys.remove(keyDecidePos);
                     newIdx.nodes.push(leftIndex);
                     newIdx.nodes.push(rightIndex);
-                    self.populate_the_inode(newIdx, index.parent);
+                    self.populate_the_inode(newIdx, index.parent, root);
                 }
             },
             None => {
