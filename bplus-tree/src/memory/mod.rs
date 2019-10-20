@@ -24,6 +24,12 @@ struct IndexNode {
     parent: *mut IndexNode,
     keys: Vec<String>,
     nodes: Vec<*mut Node>
+    // nodes: Vec<Node>
+}
+
+struct IndexItem {
+    key: String,
+    nodes: Vec<*mut Node>
 }
 
 struct Node {
@@ -205,8 +211,8 @@ impl BPlusTree {
 }
 
 impl BPlusTree {
-    fn populate_the_inode(&self, newIndex: *mut IndexNode, parent: *mut IndexNode) {
-        let newIndex = match unsafe{newIndex.as_mut()} {
+    fn populate_the_inode(&self, newIndex: *mut IndexNode, parent: *mut IndexNode, root: &mut Node) {
+        let mut newIndex = match unsafe{newIndex.as_mut()} {
             Some(node) => node,
             None => {
                 panic!("populate_the_inode newIndex is none, This should not happen");
@@ -214,7 +220,7 @@ impl BPlusTree {
         };
         match unsafe{parent.as_mut()} {
             Some(index) => {
-                let firstKey = match index.keys.first() {
+                let firstKey = match newIndex.keys.first() {
                     Some(k) => k,
                     None => {
                         panic!("populate_the_inode first key is none, This should not happen");
@@ -242,14 +248,47 @@ impl BPlusTree {
                 index.nodes.insert(pos, newIndex.nodes[0]);
                 index.nodes.insert(pos+1, newIndex.nodes[1]);
                 /*
-                ** Update parent
+                ** Update newIndex parent
                 */
-                index.parent = parent;
+                // newIndex.parent = index.parent;
                 /*
                 ** Determine the size of the elements in the inode and decide whether to split
                 */
                 let len = index.keys.len();
                 if len > self.size {
+                    let keyDecidePos = len / 2;
+                    let newKey = match index.keys.get(keyDecidePos) {
+                        Some(key) => key,
+                        None => {
+                            panic!("This should not happen");
+                        }
+                    };
+                    let mut newIdx = IndexNode{
+                        parent: std::ptr::null_mut(),
+                        keys: vec![newKey.clone()],
+                        nodes: vec![]
+                    };
+                    let newIdxPtr = &mut *Box::new(newIdx);
+                    let leftIndex = Node{
+                        index: IndexNode{
+                            parent: newIdxPtr,
+                            keys: index.keys[:keyDecidePos],
+                            nodes: index.nodes[:keyDecidePos+1]
+                        },
+                        leaf: None
+                    };
+                    let rightIndex = Node{
+                        index: IndexNode{
+                            parent: newIdxPtr,
+                            keys: index.keys[keyDecidePos+1:],
+                            nodes: index.nodes[keyDecidePos+1:]
+                        },
+                        leaf: None
+                    };
+                    index.keys.remove(keyDecidePos);
+                    newIdx.nodes.push(leftIndex);
+                    newIdx.nodes.push(rightIndex);
+                    self.populate_the_inode(newIdx, index.parent);
                 }
             },
             None => {
@@ -257,6 +296,7 @@ impl BPlusTree {
                 ** The parent node is empty
                 ** Recursive end point
                 */
+                parent = newIndex;
             }
         }
     }
@@ -343,6 +383,24 @@ impl BPlusTree {
             }
         }
         None
+    }
+
+    fn binary_find<'a>(&self, key: &str, items: &'a Vec<Item>) -> &'a Item {
+        let mid = match items.get(items.len() / 2) {
+            Some(item) => {
+                item
+            },
+            None => {
+                panic!("This shoud not happen");
+            }
+        };
+        if mid.key.as_str() == key {
+            return mid;
+        } else if mid.key.as_str() > key {
+            return self.binary_find(key, items[:items.len() / 2]);
+        } else {
+            return self.binary_find(key, items[items.len() / 2:]);
+        }
     }
 }
 
