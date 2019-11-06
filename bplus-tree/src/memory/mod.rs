@@ -127,6 +127,7 @@ impl BPlusTree {
                 /*
                 ** Populate the inode
                 */
+                BPlusTree::populate_the_inode(indexPtr, leaf.index, &mut self.root, self.size);
             }
         } else {
             /*
@@ -211,7 +212,7 @@ impl BPlusTree {
 }
 
 impl BPlusTree {
-    fn populate_the_inode(&self, newIndex: *mut IndexNode, parent: *mut IndexNode, root: &mut Node) {
+    fn populate_the_inode(newIndex: *mut IndexNode, mut parent: *mut IndexNode, root: &mut Node, size: usize) {
         let mut newIndex = match unsafe{newIndex.as_mut()} {
             Some(node) => node,
             None => {
@@ -255,7 +256,7 @@ impl BPlusTree {
                 ** Determine the size of the elements in the inode and decide whether to split
                 */
                 let len = index.keys.len();
-                if len > self.size {
+                if len > size {
                     let keyDecidePos = len / 2;
                     let newKey = match index.keys.get(keyDecidePos) {
                         Some(key) => key,
@@ -263,32 +264,32 @@ impl BPlusTree {
                             panic!("This should not happen");
                         }
                     };
-                    let mut newIdx = IndexNode{
+                    let mut newIdx = Box::new(IndexNode{
                         parent: std::ptr::null_mut(),
                         keys: vec![newKey.clone()],
                         nodes: vec![]
-                    };
-                    let newIdxPtr = &mut *Box::new(newIdx);
+                    });
+                    let newIdxPtr: *mut IndexNode = &mut *newIdx;
                     let leftIndex = Node{
-                        index: IndexNode{
+                        index: Some(IndexNode{
                             parent: newIdxPtr,
-                            keys: index.keys[:keyDecidePos],
-                            nodes: index.nodes[:keyDecidePos+1]
-                        },
+                            keys: index.keys[0..keyDecidePos].to_vec(),
+                            nodes: index.nodes[0..(keyDecidePos+1)].to_vec()
+                        }),
                         leaf: None
                     };
                     let rightIndex = Node{
-                        index: IndexNode{
+                        index: Some(IndexNode{
                             parent: newIdxPtr,
-                            keys: index.keys[keyDecidePos+1:],
-                            nodes: index.nodes[keyDecidePos+1:]
-                        },
+                            keys: index.keys[(keyDecidePos+1)..].to_vec(),
+                            nodes: index.nodes[(keyDecidePos+1)..].to_vec()
+                        }),
                         leaf: None
                     };
                     index.keys.remove(keyDecidePos);
-                    newIdx.nodes.push(leftIndex);
-                    newIdx.nodes.push(rightIndex);
-                    self.populate_the_inode(newIdx, index.parent, root);
+                    newIdx.nodes.push(&mut *Box::new(leftIndex));
+                    newIdx.nodes.push(&mut *Box::new(rightIndex));
+                    BPlusTree::populate_the_inode(newIdxPtr, index.parent, root, size);
                 }
             },
             None => {
@@ -385,21 +386,33 @@ impl BPlusTree {
         None
     }
 
-    fn binary_find<'a>(&self, key: &str, items: &'a Vec<Item>) -> &'a Item {
+    fn binary_find<'a>(&self, key: &str, items: &'a [Item]) -> Option<&'a Item> {
         let mid = match items.get(items.len() / 2) {
             Some(item) => {
                 item
             },
             None => {
-                panic!("This shoud not happen");
+                return None;
             }
         };
         if mid.key.as_str() == key {
-            return mid;
+            return Some(mid);
         } else if mid.key.as_str() > key {
-            return self.binary_find(key, items[:items.len() / 2]);
+            let sub = match items.get(..(items.len() / 2)) {
+                Some(s) => s,
+                None => {
+                    return None;
+                }
+            };
+            return self.binary_find(key, sub);
         } else {
-            return self.binary_find(key, items[items.len() / 2:]);
+            let sub = match items.get((items.len() / 2)..) {
+                Some(s) => s,
+                None => {
+                    return None;
+                }
+            };
+            return self.binary_find(key, sub);
         }
     }
 }
