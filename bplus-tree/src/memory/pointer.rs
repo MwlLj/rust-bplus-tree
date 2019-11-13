@@ -1,3 +1,5 @@
+use std::mem;
+
 #[derive(Clone)]
 struct Item {
     key: String,
@@ -25,7 +27,7 @@ struct LeafNode {
 struct IndexNode {
     parent: *mut IndexNode,
     keys: Vec<String>,
-    nodes: Vec<Box<Node>>
+    nodes: Vec<*mut Node>
     // nodes: Vec<Node>
 }
 
@@ -87,7 +89,7 @@ impl BPlusTree {
                 let right = leaf.items.split_off(len / 2);
                 let mut index = Box::new(IndexNode{
                     parent: std::ptr::null_mut(),
-                    keys: vec![leaf.items.get(len / 2 - 1).unwrap().key.clone()],
+                    keys: vec![leaf.items.get(len / 2).unwrap().key.clone()],
                     nodes: vec![]
                 });
                 let indexPtr: *mut IndexNode = &mut *index;
@@ -159,7 +161,7 @@ impl BPlusTree {
                         let right = leaf.items.split_off(len / 2);
                         let mut index = Box::new(IndexNode{
                             parent: std::ptr::null_mut(),
-                            keys: vec![leaf.items.get(len / 2 - 1).unwrap().key.clone()],
+                            keys: vec![leaf.items.get(len / 2).unwrap().key.clone()],
                             nodes: vec![]
                         });
                         let indexPtr: *mut IndexNode = &mut *index;
@@ -435,7 +437,7 @@ mod test {
     use super::*;
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn insertTest() {
         let mut btree = BPlusTree::new(2);
         btree.insert("1".to_string(), "hello".to_string());
@@ -466,5 +468,3 @@ mod test {
         }
     }
 }
-
-pub mod pointer;
