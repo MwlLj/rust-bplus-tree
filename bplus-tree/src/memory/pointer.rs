@@ -104,7 +104,7 @@ impl BPlusTree {
                 /*
                 ** Create a left subtree
                 */
-                let leftNode = Box::new(Node{
+                let mut leftNode = Box::new(Node{
                     index: None,
                     leaf: Some(LeafNode{
                         index: indexPtr,
@@ -112,12 +112,12 @@ impl BPlusTree {
                         next: &mut *rightLeafNode
                     })
                 });
-                let rightNode = Box::new(Node{
+                let mut rightNode = Box::new(Node{
                     index: None,
                     leaf: Some(*rightLeafNode)
                 });
-                index.nodes.push(leftNode);
-                index.nodes.push(rightNode);
+                index.nodes.push(&mut *leftNode);
+                index.nodes.push(&mut *rightNode);
                 /*
                 self.root = Node{
                     index: Some(*index),
@@ -176,7 +176,7 @@ impl BPlusTree {
                         /*
                         ** Create a left subtree
                         */
-                        let leftNode = Box::new(Node{
+                        let mut leftNode = Box::new(Node{
                             index: None,
                             leaf: Some(LeafNode{
                                 index: indexPtr,
@@ -184,12 +184,12 @@ impl BPlusTree {
                                 next: &mut *rightLeafNode
                             })
                         });
-                        let rightNode = Box::new(Node{
+                        let mut rightNode = Box::new(Node{
                             index: None,
                             leaf: Some(*rightLeafNode)
                         });
-                        index.nodes.push(leftNode);
-                        index.nodes.push(rightNode);
+                        index.nodes.push(&mut *leftNode);
+                        index.nodes.push(&mut *rightNode);
                         self.root = Node{
                             index: Some(*index),
                             leaf: None
@@ -306,8 +306,10 @@ impl BPlusTree {
                         leaf: None
                     };
                     index.keys.remove(keyDecidePos);
-                    newIdx.nodes.push(Box::new(leftIndex));
-                    newIdx.nodes.push(Box::new(rightIndex));
+                    let mut leftIndexBox = Box::new(leftIndex);
+                    let mut rightIndexBox = Box::new(rightIndex);
+                    newIdx.nodes.push(&mut *leftIndexBox);
+                    newIdx.nodes.push(&mut *rightIndexBox);
                     BPlusTree::populate_the_inode(newIdx, index.parent, root, size);
                 }
             },
@@ -339,7 +341,12 @@ impl BPlusTree {
                             */
                             match index.nodes.get_mut(pos) {
                                 Some(node) => {
-                                    return BPlusTree::find_leaf(key, node.as_mut());
+                                    return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
+                                        Some(n) => n,
+                                        None => {
+                                            panic!("should not happend");
+                                        }
+                                    });
                                 },
                                 None => {
                                     /*
@@ -356,7 +363,12 @@ impl BPlusTree {
                             */
                             match index.nodes.last_mut() {
                                 Some(node) => {
-                                    return BPlusTree::find_leaf(key, node.as_mut());
+                                    return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
+                                        Some(n) => n,
+                                        None => {
+                                            panic!("should not happend");
+                                        }
+                                    });
                                 },
                                 None => {
                                     /*
