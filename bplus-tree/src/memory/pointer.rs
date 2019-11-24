@@ -1,6 +1,6 @@
 use std::mem;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Item {
     key: String,
     value: String,
@@ -16,14 +16,14 @@ impl Item {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct LeafNode {
     index: *mut IndexNode,
     items: Vec<Item>,
     next: *mut LeafNode
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct IndexNode {
     parent: *mut IndexNode,
     keys: Vec<String>,
@@ -31,10 +31,10 @@ struct IndexNode {
     // nodes: Vec<Node>
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Node {
-    index: Option<IndexNode>,
-    leaf: Option<LeafNode>
+    index: Option<*mut IndexNode>,
+    leaf: Option<*mut LeafNode>
     // index: Option<Box<IndexNode>>,
     // leaf: Option<Box<LeafNode>>
 }
@@ -68,67 +68,9 @@ impl BPlusTree {
                     panic!("insert self.root.index.is_some(), This should not happen");
                 }
             };
-            match leaf.items.iter().position(|it| {
-                key < it.key
-            }) {
-                Some(pos) => {
-                    leaf.items.insert(pos, Item::new(key, value));
-                },
-                None => {
-                    /*
-                    ** Without the first element larger than the input key, insert it to the end
-                    */
-                    leaf.items.push(Item::new(key, value));
-                }
-            }
-            /*
-            ** Determine the size of the elements in the leaf node and decide whether to split
-            */
-            let len = leaf.items.len();
-            if len > self.size {
-                let right = leaf.items.split_off(len / 2);
-                let mut index = Box::new(IndexNode{
-                    parent: std::ptr::null_mut(),
-                    keys: vec![leaf.items.get(len / 2).unwrap().key.clone()],
-                    nodes: vec![]
-                });
-                let indexPtr: *mut IndexNode = &mut *index;
-                /*
-                ** Create a right subtree
-                */
-                let mut rightLeafNode = Box::new(LeafNode{
-                    index: indexPtr,
-                    items: right.clone(),
-                    next: std::ptr::null_mut()
-                });
-                /*
-                ** Create a left subtree
-                */
-                let mut leftNode = Box::new(Node{
-                    index: None,
-                    leaf: Some(LeafNode{
-                        index: indexPtr,
-                        items: leaf.items.clone(),
-                        next: &mut *rightLeafNode
-                    })
-                });
-                let mut rightNode = Box::new(Node{
-                    index: None,
-                    leaf: Some(*rightLeafNode)
-                });
-                index.nodes.push(&mut *leftNode);
-                index.nodes.push(&mut *rightNode);
-                /*
-                self.root = Node{
-                    index: Some(*index),
-                    leaf: None
-                };
-                */
-                /*
-                ** Populate the inode
-                */
-                BPlusTree::populate_the_inode(index, leaf.index, &mut self.root, self.size);
-            }
+            let mut leaf = unsafe{leaf.as_mut()};
+            let leaf = leaf.as_mut().expect("should not happend");
+            self.insert_leaf(key, value, leaf);
         } else {
             /*
             ** leaf node
@@ -136,81 +78,32 @@ impl BPlusTree {
             ** , they should also be inserted in the leaf node (first insert)
             */
             match self.root.leaf.as_mut() {
-                Some(leaf) => {
+                Some(leafPtr) => {
                     /*
                     ** Insert before the first element larger than the input key
                     */
-                    match leaf.items.iter().position(|it| {
-                        key < it.key
-                    }) {
-                        Some(pos) => {
-                            leaf.items.insert(pos, Item::new(key, value));
-                        },
-                        None => {
-                            /*
-                            ** Without the first element larger than the input key, insert it to the end
-                            */
-                            leaf.items.push(Item::new(key, value));
-                        }
-                    }
-                    /*
-                    ** Determine the size of the elements in the leaf node and decide whether to split
-                    */
-                    let len = leaf.items.len();
-                    if len > self.size {
-                        let right = leaf.items.split_off(len / 2);
-                        let mut index = Box::new(IndexNode{
-                            parent: std::ptr::null_mut(),
-                            keys: vec![leaf.items.get(len / 2).unwrap().key.clone()],
-                            nodes: vec![]
-                        });
-                        let indexPtr: *mut IndexNode = &mut *index;
-                        /*
-                        ** Create a right subtree
-                        */
-                        let mut rightLeafNode = Box::new(LeafNode{
-                            index: indexPtr,
-                            items: right.clone(),
-                            next: std::ptr::null_mut()
-                        });
-                        /*
-                        ** Create a left subtree
-                        */
-                        let mut leftNode = Box::new(Node{
-                            index: None,
-                            leaf: Some(LeafNode{
-                                index: indexPtr,
-                                items: leaf.items.clone(),
-                                next: &mut *rightLeafNode
-                            })
-                        });
-                        let mut rightNode = Box::new(Node{
-                            index: None,
-                            leaf: Some(*rightLeafNode)
-                        });
-                        index.nodes.push(&mut *leftNode);
-                        index.nodes.push(&mut *rightNode);
-                        self.root = Node{
-                            index: Some(*index),
-                            leaf: None
-                        };
-                    }
+                    let mut leaf = unsafe{leafPtr.as_mut()};
+                    let leaf = leaf.as_mut().expect("should not happen");
+                    self.insert_leaf(key, value, leaf);
                 },
                 None => {
                     /*
                     ** First element, insert directly
                     */
-                    self.root.leaf = Some(LeafNode{
+                    let mut leafNode = Box::new(LeafNode{
                         index: std::ptr::null_mut(),
                         items: vec![Item::new(key, value)],
                         next: std::ptr::null_mut()
                     });
+                    self.root.leaf = Some(&mut *leafNode);
+                    mem::forget(leafNode);
                 }
             }
         }
     }
 
-    pub fn get(&mut self, key: &str) -> Option<&str> {
+    pub fn get(&mut self, key: &str) -> Option<String> {
+        println!("{:?}", &self.root);
         let leafNode = match BPlusTree::find_leaf(key, &mut self.root) {
             Some(v) => {
                 v
@@ -219,9 +112,11 @@ impl BPlusTree {
                 return None;
             }
         };
+        let mut leafNode = unsafe{leafNode.as_mut()};
+        let leafNode = leafNode.as_mut().expect("should not happen");
         for item in leafNode.items.iter() {
             if item.key == key {
-                return Some(&item.value);
+                return Some(item.value.to_string());
             }
         }
         None
@@ -229,7 +124,71 @@ impl BPlusTree {
 }
 
 impl BPlusTree {
-    fn populate_the_inode(mut newIndex: Box<IndexNode>, mut parent: *mut IndexNode, root: &mut Node, size: usize) {
+    /*
+    ** leaf: 待插入的叶子节点
+    */
+    fn insert_leaf(&mut self, key: String, value: String, leaf: &mut LeafNode) {
+        match leaf.items.iter().position(|it| {
+            key < it.key
+        }) {
+            Some(pos) => {
+                leaf.items.insert(pos, Item::new(key, value));
+            },
+            None => {
+                /*
+                ** Without the first element larger than the input key, insert it to the end
+                */
+                leaf.items.push(Item::new(key, value));
+            }
+        }
+        /*
+        ** Determine the size of the elements in the leaf node and decide whether to split
+        */
+        let len = leaf.items.len();
+        if len > self.size {
+            let k = leaf.items.get(len / 2).unwrap().key.clone();
+            let right = leaf.items.split_off(len / 2);
+            /*
+            ** Create a right subtree
+            */
+            let mut rightLeafNode = Box::new(LeafNode{
+                index: std::ptr::null_mut(),
+                items: right.clone(),
+                next: std::ptr::null_mut()
+            });
+            /*
+            ** Create a left subtree
+            */
+            let mut leftLeafNode = Box::new(LeafNode{
+                index: std::ptr::null_mut(),
+                items: leaf.items.clone(),
+                next: &mut *rightLeafNode
+            });
+            let mut leftNode = Box::new(Node{
+                index: None,
+                leaf: Some(&mut *leftLeafNode)
+            });
+            let mut rightNode = Box::new(Node{
+                index: None,
+                leaf: Some(&mut *rightLeafNode)
+            });
+            mem::forget(leftLeafNode);
+            mem::forget(rightLeafNode);
+            /*
+            self.root = Node{
+                index: Some(*index),
+                leaf: None
+            };
+            */
+            /*
+            ** Populate the inode
+            */
+            BPlusTree::populate_the_inode(&k
+                , &mut *leftNode, &mut *rightNode, leaf.index, &mut self.root, self.size);
+        }
+    }
+
+    fn populate_the_inode(newKey: &str, mut newLeftNode: *mut Node, mut newRightNode: *mut Node, mut parent: *mut IndexNode, root: &mut Node, size: usize) {
         /*
         let mut newIndex = match unsafe{newIndex.as_mut()} {
             Some(node) => node,
@@ -240,21 +199,15 @@ impl BPlusTree {
         */
         match unsafe{parent.as_mut()} {
             Some(index) => {
-                let firstKey = match newIndex.keys.first() {
-                    Some(k) => k,
-                    None => {
-                        panic!("populate_the_inode first key is none, This should not happen");
-                    }
-                };
                 let pos = match index.keys.iter().position(|it| {
-                    it.as_str() > firstKey
+                    it.as_str() > newKey
                 }) {
                     Some(pos) => {
-                        index.keys.insert(pos, firstKey.clone());
+                        index.keys.insert(pos, newKey.to_string());
                         pos
                     },
                     None => {
-                        index.keys.push(firstKey.clone());
+                        index.keys.push(newKey.to_string());
                         index.nodes.len() - 1
                     }
                 };
@@ -262,11 +215,9 @@ impl BPlusTree {
                 ** Update path
                 */
                 index.nodes.remove(pos);
-                if newIndex.nodes.len() < 2 {
-                    panic!("newIndex nodes len < 2, This should not happen");
-                }
-                index.nodes.insert(pos, newIndex.nodes.remove(0));
-                index.nodes.insert(pos+1, newIndex.nodes.remove(0));
+                // std::mem::forget();
+                index.nodes.insert(pos, newLeftNode);
+                index.nodes.insert(pos+1, newRightNode);
                 /*
                 ** Update newIndex parent
                 */
@@ -277,40 +228,39 @@ impl BPlusTree {
                 let len = index.keys.len();
                 if len > size {
                     let keyDecidePos = len / 2;
-                    let newKey = match index.keys.get(keyDecidePos) {
+                    let newIndexKey = match index.keys.get(keyDecidePos) {
                         Some(key) => key,
                         None => {
                             panic!("This should not happen");
                         }
                     };
-                    let mut newIdx = Box::new(IndexNode{
+                    let newIndexKeyClone = newIndexKey.to_string();
+                    let mut leftIndexNode = Box::new(IndexNode{
                         parent: std::ptr::null_mut(),
-                        keys: vec![newKey.clone()],
-                        nodes: vec![]
+                        keys: index.keys[0..keyDecidePos].to_vec(),
+                        nodes: index.nodes[0..(keyDecidePos+1)].to_vec()
                     });
-                    let newIdxPtr: *mut IndexNode = &mut *newIdx;
                     let leftIndex = Node{
-                        index: Some(IndexNode{
-                            parent: newIdxPtr,
-                            keys: index.keys[0..keyDecidePos].to_vec(),
-                            nodes: index.nodes[0..(keyDecidePos+1)].to_vec()
-                        }),
+                        index: Some(&mut *leftIndexNode),
                         leaf: None
                     };
+                    let mut rightIndexNode = Box::new(IndexNode{
+                        parent: std::ptr::null_mut(),
+                        keys: index.keys[(keyDecidePos+1)..].to_vec(),
+                        nodes: index.nodes[(keyDecidePos+1)..].to_vec()
+                    });
                     let rightIndex = Node{
-                        index: Some(IndexNode{
-                            parent: newIdxPtr,
-                            keys: index.keys[(keyDecidePos+1)..].to_vec(),
-                            nodes: index.nodes[(keyDecidePos+1)..].to_vec()
-                        }),
+                        index: Some(&mut *rightIndexNode),
                         leaf: None
                     };
                     index.keys.remove(keyDecidePos);
                     let mut leftIndexBox = Box::new(leftIndex);
                     let mut rightIndexBox = Box::new(rightIndex);
-                    newIdx.nodes.push(&mut *leftIndexBox);
-                    newIdx.nodes.push(&mut *rightIndexBox);
-                    BPlusTree::populate_the_inode(newIdx, index.parent, root, size);
+                    BPlusTree::populate_the_inode(&newIndexKeyClone, &mut *leftIndexBox, &mut *rightIndexBox, index.parent, root, size);
+                    mem::forget(leftIndexNode);
+                    mem::forget(rightIndexNode);
+                    mem::forget(leftIndexBox);
+                    mem::forget(rightIndexBox);
                 }
             },
             None => {
@@ -318,19 +268,29 @@ impl BPlusTree {
                 ** The parent node is empty
                 ** Recursive end point
                 */
-                parent = &mut *newIndex;
+                let mut newIndex = IndexNode {
+                    parent: std::ptr::null_mut(),
+                    keys: vec![newKey.to_string()],
+                    nodes: vec![newLeftNode, newRightNode]
+                };
+                let mut newIndexBox = Box::new(newIndex);
+                parent = &mut *newIndexBox;
+                root.index = Some(parent);
+                mem::forget(newIndexBox);
                 // std::mem::forget(newIndex);
             }
         }
     }
 
-    fn find_leaf<'a>(key: &str, root: &'a mut Node) -> Option<&'a mut LeafNode> {
+    fn find_leaf<'a>(key: &str, root: &'a mut Node) -> Option<*mut LeafNode> {
         if root.index.is_some() {
             /*
             ** Index node
             */
             match root.index.as_mut() {
-                Some(index) => {
+                Some(indexPtr) => {
+                    let mut index = unsafe{indexPtr.as_mut()};
+                    let index = index.as_mut().expect("should not happen");
                     match index.keys.iter().position(|it| {
                         it.as_str() > key
                     }) {
@@ -389,9 +349,13 @@ impl BPlusTree {
                 }
             }
         } else {
+            return root.leaf;
+            /*
             match root.leaf.as_mut() {
-                Some(leaf) => {
-                    return Some(leaf);
+                Some(leafPtr) => {
+                    // let leaf = unsafe{leafPtr.as_mut()}.as_mut().expect("should not happen");
+                    // return Some(leaf);
+                    return leafPtr;
                 },
                 None => {
                     /*
@@ -400,6 +364,7 @@ impl BPlusTree {
                     return None;
                 }
             }
+            */
         }
         None
     }
@@ -455,7 +420,7 @@ mod test {
         btree.insert("1".to_string(), "hello".to_string());
         btree.insert("2".to_string(), "world".to_string());
         btree.insert("3".to_string(), "hello world".to_string());
-        btree.insert("4".to_string(), "hello".to_string());
+        // btree.insert("4".to_string(), "hello".to_string());
         // btree.insert("5".to_string(), "world".to_string());
         // btree.insert("6".to_string(), "hello world".to_string());
     }
