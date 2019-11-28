@@ -32,19 +32,16 @@ struct IndexNode {
 }
 
 #[derive(Clone, Debug)]
-struct Node {
-    index: Option<*mut IndexNode>,
-    leaf: Option<*mut LeafNode>
+enum Node {
+    Index(*mut IndexNode),
+    Leaf(*mut LeafNode)
     // index: Option<Box<IndexNode>>,
     // leaf: Option<Box<LeafNode>>
 }
 
 impl Default for Node {
     fn default() -> Self {
-        Self {
-            index: None,
-            leaf: None
-        }
+        Node::Leaf(std::ptr::null_mut())
     }
 }
 
@@ -55,48 +52,62 @@ pub struct BPlusTree {
 
 impl BPlusTree {
     pub fn insert(&mut self, key: String, value: String) {
-        if self.root.index.is_some() {
-            /*
-            ** index node
-            */
-            /*
-            ** Find inserted leaf nodes
-            */
-            let leaf = match BPlusTree::find_leaf(&key, &mut self.root) {
-                Some(n) => n,
-                None => {
-                    panic!("insert self.root.index.is_some(), This should not happen");
-                }
-            };
-            let mut leaf = unsafe{leaf.as_mut()};
-            let leaf = leaf.as_mut().expect("should not happend");
-            self.insert_leaf(key, value, leaf);
-        } else {
-            /*
-            ** leaf node
-            ** If both are empty
-            ** , they should also be inserted in the leaf node (first insert)
-            */
-            match self.root.leaf.as_mut() {
-                Some(leafPtr) => {
-                    /*
-                    ** Insert before the first element larger than the input key
-                    */
-                    let mut leaf = unsafe{leafPtr.as_mut()};
-                    let leaf = leaf.as_mut().expect("should not happen");
-                    self.insert_leaf(key, value, leaf);
-                },
-                None => {
-                    /*
-                    ** First element, insert directly
-                    */
-                    let mut leafNode = Box::new(LeafNode{
-                        index: std::ptr::null_mut(),
-                        items: vec![Item::new(key, value)],
-                        next: std::ptr::null_mut()
-                    });
-                    self.root.leaf = Some(&mut *leafNode);
-                    mem::forget(leafNode);
+        match self.root {
+            Node::Index(index) => {
+                /*
+                ** index node
+                */
+                /*
+                ** Find inserted leaf nodes
+                */
+                match BPlusTree::find_leaf(&key, &mut self.root) {
+                    Some(leafPtr) => {
+                        match unsafe{leafPtr.as_mut()} {
+                            Some(leaf) => {
+                                self.insert_leaf(key.clone(), value, leaf);
+                                // println!("after insert {}, {:?}", &key, leaf.index);
+                            },
+                            None => {
+                                panic!("leafPtr ipoint is null, should not happen");
+                            }
+                        }
+                    },
+                    None => {
+                        panic!("find_leaf is none, This should not happen");
+                    }
+                };
+                /*
+                let mut leaf = unsafe{leafPtr.as_mut()};
+                let leaf = leaf.as_mut().expect("should not happend");
+                self.insert_leaf(key, value, leaf);
+                */
+            },
+            Node::Leaf(node) => {
+                /*
+                ** leaf node
+                ** If both are empty
+                ** , they should also be inserted in the leaf node (first insert)
+                */
+                match unsafe{node.as_mut()} {
+                    Some(leaf) => {
+                        /*
+                        ** Insert before the first element larger than the input key
+                        */
+                        self.insert_leaf(key.clone(), value, leaf);
+                        // println!("after insert {}, {:?}", &key, leaf.index);
+                    },
+                    None => {
+                        /*
+                        ** First element, insert directly
+                        */
+                        let mut leafNode = Box::new(LeafNode{
+                            index: std::ptr::null_mut(),
+                            items: vec![Item::new(key, value)],
+                            next: std::ptr::null_mut()
+                        });
+                        self.root = Node::Leaf(&mut *leafNode);
+                        mem::forget(leafNode);
+                    }
                 }
             }
         }
@@ -114,7 +125,7 @@ impl BPlusTree {
     }
 
     pub fn get(&mut self, key: &str) -> Option<String> {
-        // println!("{:?}", &self.root);
+        println!("{:?}", &self.root);
         let leafNode = match BPlusTree::find_leaf(key, &mut self.root) {
             Some(v) => {
                 v
@@ -125,7 +136,6 @@ impl BPlusTree {
         };
         let mut leafNode = unsafe{leafNode.as_mut()};
         let leafNode = leafNode.as_mut().expect("should not happen");
-        // println!("{:?}", &leafNode.items);
         for item in leafNode.items.iter() {
             if item.key == key {
                 return Some(item.value.to_string());
@@ -158,9 +168,12 @@ impl BPlusTree {
         */
         let len = leaf.items.len();
         if len > self.size {
-            let k = leaf.items.get(len / 2).unwrap().key.clone();
-            let right = leaf.items.split_off(len / 2);
-            // println!("left: {:?}, right: {:?}", leaf.items, right);
+            let k = leaf.items.get(self.size / 2).unwrap().key.clone();
+            /*
+            ** split_off 不包括 参数的位置
+            */
+            let right = leaf.items.split_off(self.size / 2 + 1);
+            // println!("determine, key: {}, left: {:?}, right: {:?}", &k, &leaf.items, &right);
             /*
             ** Create a right subtree
             */
@@ -177,16 +190,8 @@ impl BPlusTree {
                 items: leaf.items.clone(),
                 next: &mut *rightLeafNode
             });
-            let mut leftNode = Box::new(Node{
-                index: None,
-                leaf: Some(&mut *leftLeafNode)
-            });
-            let mut rightNode = Box::new(Node{
-                index: None,
-                leaf: Some(&mut *rightLeafNode)
-            });
-            mem::forget(leftLeafNode);
-            mem::forget(rightLeafNode);
+            let mut leftNode = Box::new(Node::Leaf(&mut *leftLeafNode));
+            let mut rightNode = Box::new(Node::Leaf(&mut *rightLeafNode));
             /*
             self.root = Node{
                 index: Some(*index),
@@ -197,13 +202,17 @@ impl BPlusTree {
             ** Populate the inode
             */
             BPlusTree::populate_the_inode(&k
-                , &mut *leftNode, &mut *rightNode, leaf.index, &mut self.root, self.size);
+                , &mut *leftNode, &mut *rightNode, &mut leaf.index, &mut self.root, self.size);
+            rightLeafNode.index = leaf.index;
+            leftLeafNode.index = leaf.index;
+            mem::forget(leftLeafNode);
+            mem::forget(rightLeafNode);
             mem::forget(leftNode);
             mem::forget(rightNode);
         }
     }
 
-    fn populate_the_inode(newKey: &str, mut newLeftNode: *mut Node, mut newRightNode: *mut Node, mut parent: *mut IndexNode, root: &mut Node, size: usize) {
+    fn populate_the_inode(newKey: &str, mut newLeftNode: *mut Node, mut newRightNode: *mut Node, parent: &mut *mut IndexNode, root: &mut Node, size: usize) {
         /*
         let mut newIndex = match unsafe{newIndex.as_mut()} {
             Some(node) => node,
@@ -212,6 +221,7 @@ impl BPlusTree {
             }
         };
         */
+        // println!("{:?}", parent);
         match unsafe{parent.as_mut()} {
             Some(index) => {
                 let pos = match index.keys.iter().position(|it| {
@@ -229,10 +239,12 @@ impl BPlusTree {
                 /*
                 ** Update path
                 */
+                // println!("nodes: {:?}, remove pos: {}", &index.nodes, pos);
                 index.nodes.remove(pos);
                 // std::mem::forget();
                 index.nodes.insert(pos, newLeftNode);
                 index.nodes.insert(pos+1, newRightNode);
+                // println!("index: {:?}", &index.nodes);
                 /*
                 ** Update newIndex parent
                 */
@@ -255,23 +267,19 @@ impl BPlusTree {
                         keys: index.keys[0..keyDecidePos].to_vec(),
                         nodes: index.nodes[0..(keyDecidePos+1)].to_vec()
                     });
-                    let leftIndex = Node{
-                        index: Some(&mut *leftIndexNode),
-                        leaf: None
-                    };
+                    let leftIndex = Node::Index(&mut *leftIndexNode);
                     let mut rightIndexNode = Box::new(IndexNode{
                         parent: std::ptr::null_mut(),
                         keys: index.keys[(keyDecidePos+1)..].to_vec(),
                         nodes: index.nodes[(keyDecidePos+1)..].to_vec()
                     });
-                    let rightIndex = Node{
-                        index: Some(&mut *rightIndexNode),
-                        leaf: None
-                    };
+                    let rightIndex = Node::Index(&mut *rightIndexNode);
                     index.keys.remove(keyDecidePos);
                     let mut leftIndexBox = Box::new(leftIndex);
                     let mut rightIndexBox = Box::new(rightIndex);
-                    BPlusTree::populate_the_inode(&newIndexKeyClone, &mut *leftIndexBox, &mut *rightIndexBox, index.parent, root, size);
+                    BPlusTree::populate_the_inode(&newIndexKeyClone, &mut *leftIndexBox, &mut *rightIndexBox, &mut index.parent, root, size);
+                    leftIndexNode.parent = index.parent;
+                    rightIndexNode.parent = index.parent;
                     mem::forget(leftIndexNode);
                     mem::forget(rightIndexNode);
                     mem::forget(leftIndexBox);
@@ -289,100 +297,101 @@ impl BPlusTree {
                     nodes: vec![newLeftNode, newRightNode]
                 };
                 let mut newIndexBox = Box::new(newIndex);
-                parent = &mut *newIndexBox;
-                root.index = Some(parent);
-                root.leaf = None;
+                *parent = &mut *newIndexBox;
+                *root = Node::Index(*parent);
                 mem::forget(newIndexBox);
+                // println!("pop parent");
                 // std::mem::forget(newIndex);
             }
         }
     }
 
     fn find_leaf<'a>(key: &str, root: &'a mut Node) -> Option<*mut LeafNode> {
-        if root.index.is_some() {
-            /*
-            ** Index node
-            */
-            match root.index.as_mut() {
-                Some(indexPtr) => {
-                    let mut index = unsafe{indexPtr.as_mut()};
-                    let index = index.as_mut().expect("should not happen");
-                    match index.keys.iter().position(|it| {
-                        it.as_str() > key
-                    }) {
-                        Some(pos) => {
-                            /*
-                            ** There are nodes larger than the key
-                            ** Find the node path at this location
-                            */
-                            match index.nodes.get_mut(pos) {
-                                Some(node) => {
-                                    // println!("find node");
-                                    return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
-                                        Some(n) => n,
-                                        None => {
-                                            panic!("should not happend");
-                                        }
-                                    });
-                                },
-                                None => {
-                                    /*
-                                    ** This should not happen
-                                    */
-                                    panic!("find_leaf index.nodes.get(pos) is none, This should not happen");
+        match root {
+            Node::Index(node) => {
+                /*
+                ** Index node
+                */
+                match unsafe{node.as_mut()} {
+                    Some(index) => {
+                        // println!("index: {:?}", &index.keys);
+                        match index.keys.iter().position(|it| {
+                            it.as_str() >= key
+                        }) {
+                            Some(pos) => {
+                                /*
+                                ** There are nodes larger than the key
+                                ** Find the node path at this location
+                                */
+                                match index.nodes.get_mut(pos) {
+                                    Some(node) => {
+                                        return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
+                                            Some(n) => n,
+                                            None => {
+                                                panic!("should not happend");
+                                            }
+                                        });
+                                    },
+                                    None => {
+                                        /*
+                                        ** This should not happen
+                                        */
+                                        panic!("find_leaf index.nodes.get(pos) is none, This should not happen");
+                                    }
                                 }
-                            }
-                        },
-                        None => {
-                            /*
-                            ** There are no nodes larger than the key
-                            ** Get the last path in the path list
-                            */
-                            // println!("not found");
-                            match index.nodes.last_mut() {
-                                Some(node) => {
-                                    return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
-                                        Some(n) => n,
-                                        None => {
-                                            panic!("should not happend");
-                                        }
-                                    });
-                                },
-                                None => {
-                                    /*
-                                    ** The path list is empty
-                                    ** This should not happen
-                                    */
-                                    panic!("find_leaf index.nodes.last() is none, This should not happen");
+                            },
+                            None => {
+                                /*
+                                ** There are no nodes larger than the key
+                                ** Get the last path in the path list
+                                */
+                                match index.nodes.last_mut() {
+                                    Some(node) => {
+                                        return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
+                                            Some(n) => n,
+                                            None => {
+                                                panic!("should not happend");
+                                            }
+                                        });
+                                    },
+                                    None => {
+                                        /*
+                                        ** The path list is empty
+                                        ** This should not happen
+                                        */
+                                        panic!("find_leaf index.nodes.last() is none, This should not happen");
+                                    }
                                 }
                             }
                         }
+                    },
+                    None => {
+                        /*
+                        ** This should not happen
+                        */
+                        panic!("find_leaf root.index.is_some is true, but get none, This should not happen");
                     }
-                },
-                None => {
-                    /*
-                    ** This should not happen
-                    */
-                    panic!("find_leaf root.index.is_some is true, but get none, This should not happen");
                 }
-            }
-        } else {
-            return root.leaf;
-            /*
-            match root.leaf.as_mut() {
-                Some(leafPtr) => {
-                    // let leaf = unsafe{leafPtr.as_mut()}.as_mut().expect("should not happen");
-                    // return Some(leaf);
-                    return leafPtr;
-                },
-                None => {
-                    /*
-                    ** There is no data in the tree
-                    */
-                    return None;
+            },
+            Node::Leaf(node) => {
+                // println!("leaf: {:?}", &unsafe{node.as_mut()}.as_mut().unwrap().items);
+                return Some(*node);
+                /*
+                match root.leaf.as_mut() {
+                    Some(leafPtr) => {
+                        // let leaf = unsafe{leafPtr.as_mut()}.as_mut().expect("should not happen");
+                        // return Some(leaf);
+                        return leafPtr;
+                    },
+                    None => {
+                        /*
+                        ** There is no data in the tree
+                        */
+                        return None;
+                    }
                 }
+                */
             }
-            */
         }
         None
     }

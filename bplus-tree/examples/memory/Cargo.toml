@@ -8,3 +8,7 @@ edition = "2018"
 
 [dependencies.bplus_tree]
 path = "../.."
+
+[dependencies.uuid]
+version = "*"
+features = ["v4"]
