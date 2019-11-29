@@ -111,6 +111,8 @@ impl BPlusTree {
                 }
             }
         }
+        println!("------------------------");
+        self.printTree(&self.root);
     }
 
     /*
@@ -126,6 +128,7 @@ impl BPlusTree {
 
     pub fn get(&mut self, key: &str) -> Option<String> {
         println!("{:?}", &self.root);
+        // self.printTree(&self.root);
         let leafNode = match BPlusTree::find_leaf(key, &mut self.root) {
             Some(v) => {
                 v
@@ -240,8 +243,8 @@ impl BPlusTree {
                 ** Update path
                 */
                 // println!("nodes: {:?}, remove pos: {}", &index.nodes, pos);
-                index.nodes.remove(pos);
                 // std::mem::forget();
+                index.nodes.remove(pos);
                 index.nodes.insert(pos, newLeftNode);
                 index.nodes.insert(pos+1, newRightNode);
                 // println!("index: {:?}", &index.nodes);
@@ -261,6 +264,7 @@ impl BPlusTree {
                             panic!("This should not happen");
                         }
                     };
+                    println!("--- {:?}, {:?} ---", &index.keys, &newIndexKey);
                     let newIndexKeyClone = newIndexKey.to_string();
                     let mut leftIndexNode = Box::new(IndexNode{
                         parent: std::ptr::null_mut(),
@@ -299,6 +303,7 @@ impl BPlusTree {
                 let mut newIndexBox = Box::new(newIndex);
                 *parent = &mut *newIndexBox;
                 *root = Node::Index(*parent);
+                // println!("update root, key: {}", newKey);
                 mem::forget(newIndexBox);
                 // println!("pop parent");
                 // std::mem::forget(newIndex);
@@ -423,6 +428,63 @@ impl BPlusTree {
                 }
             };
             return self.binary_find(key, sub);
+        }
+    }
+}
+
+impl BPlusTree {
+    fn printTree(&self, root: &Node) {
+        match root {
+            Node::Index(indexPtr) => {
+                match unsafe{indexPtr.as_mut()}.as_mut() {
+                    Some(index) => {
+                        println!("parent: {:?}, keys: {:?}, nodes size: {}", index.parent, index.keys, index.nodes.len());
+                        /*
+                        for node in index.nodes.iter() {
+                            match unsafe{node.as_mut()}.as_mut() {
+                                Some(nd) => {
+                                    match nd {
+                                        Node::Index(p) => {
+                                            match unsafe{p.as_mut()}.as_mut() {
+                                                Some(idx) => {
+                                                    println!("parent: {:?}, keys: {:?}", idx.parent, idx.keys);
+                                                },
+                                                None => {
+                                                }
+                                            }
+                                        },
+                                        Node::Leaf(le) => {
+                                        }
+                                    }
+                                },
+                                None => {
+                                }
+                            }
+                        }
+                        */
+                        for node in index.nodes.iter() {
+                            match unsafe{node.as_mut()}.as_mut() {
+                                Some(nd) => {
+                                    self.printTree(nd);
+                                },
+                                None => {
+                                }
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+            },
+            Node::Leaf(leafPtr) => {
+                match unsafe{leafPtr.as_mut()}.as_mut() {
+                    Some(leaf) => {
+                        println!("index: {:?}, item: {:?}", leaf.index, leaf.items);
+                    },
+                    None => {
+                    }
+                }
+            }
         }
     }
 }
