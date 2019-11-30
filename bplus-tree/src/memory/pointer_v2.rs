@@ -24,11 +24,17 @@ struct LeafNode {
 }
 
 #[derive(Clone, Debug)]
-struct IndexNode {
-    parent: *mut IndexNode,
+struct IndexItem {
     keys: Vec<String>,
     nodes: Vec<*mut Node>
-    // nodes: Vec<Node>
+}
+
+#[derive(Clone, Debug)]
+struct IndexNode {
+    parent: *mut IndexNode,
+    items: Vec<IndexItem>
+    // keys: Vec<String>,
+    // nodes: Vec<*mut Node>
 }
 
 #[derive(Clone, Debug)]
@@ -102,7 +108,7 @@ impl BPlusTree {
                         */
                         let mut leafNode = Box::new(LeafNode{
                             index: std::ptr::null_mut(),
-                            items: vec![Item::new(key, value)],
+                            items: vec![Item::new(key.clone(), value)],
                             next: std::ptr::null_mut()
                         });
                         self.root = Node::Leaf(&mut *leafNode);
@@ -112,6 +118,7 @@ impl BPlusTree {
             }
         }
         println!("------------------------");
+        println!("insert: {}", &key);
         self.printTree(&self.root);
     }
 
@@ -204,10 +211,12 @@ impl BPlusTree {
             /*
             ** Populate the inode
             */
+            let mut leftNodePtr: *mut Node = &mut *leftNode;
+            let mut rightNodePtr: *mut Node = &mut *rightNode;
             BPlusTree::populate_the_inode(&k
-                , &mut *leftNode, &mut *rightNode, &mut leaf.index, &mut self.root, self.size);
-            rightLeafNode.index = leaf.index;
-            leftLeafNode.index = leaf.index;
+                , &mut leftNodePtr, &mut rightNodePtr, &mut leaf.index, &mut self.root, self.size);
+            // rightLeafNode.index = leaf.index;
+            // leftLeafNode.index = leaf.index;
             mem::forget(leftLeafNode);
             mem::forget(rightLeafNode);
             mem::forget(leftNode);
@@ -215,7 +224,7 @@ impl BPlusTree {
         }
     }
 
-    fn populate_the_inode(newKey: &str, mut newLeftNode: *mut Node, mut newRightNode: *mut Node, parent: &mut *mut IndexNode, root: &mut Node, size: usize) {
+    fn populate_the_inode(newKey: &str, newLeftNode: &mut *mut Node, newRightNode: &mut *mut Node, parent: &mut *mut IndexNode, root: &mut Node, size: usize) {
         /*
         let mut newIndex = match unsafe{newIndex.as_mut()} {
             Some(node) => node,
@@ -227,26 +236,52 @@ impl BPlusTree {
         // println!("{:?}", parent);
         match unsafe{parent.as_mut()} {
             Some(index) => {
-                let pos = match index.keys.iter().position(|it| {
-                    it.as_str() > newKey
-                }) {
-                    Some(pos) => {
-                        index.keys.insert(pos, newKey.to_string());
-                        pos
-                    },
-                    None => {
-                        index.keys.push(newKey.to_string());
-                        index.nodes.len() - 1
-                    }
-                };
+                /*
+                ** 查找待插入的页
+                */
+                let mut pageIndex = 0;
+                let mut position = 0;
+                let itemsLen = index.items.len();
+                println!("before populate, {:?}", &index.items);
+                for (i, item) in index.items.iter_mut().enumerate() {
+                    /*
+                    ** 待优化, 不是全部遍历, 应该比较每一个item中的最大值和最小值
+                    */
+                    match item.keys.iter().position(|it| {
+                        it.as_str() > newKey
+                    }) {
+                        Some(pos) => {
+                            item.keys.insert(pos, newKey.to_string());
+                            position = pos;
+                            pageIndex = i;
+                            break;
+                        },
+                        None => {
+                            if i == itemsLen - 1 {
+                                item.keys.push(newKey.to_string());
+                                position = item.nodes.len() - 1;
+                                pageIndex = i;
+                            }
+                        }
+                    };
+                }
                 /*
                 ** Update path
                 */
                 // println!("nodes: {:?}, remove pos: {}", &index.nodes, pos);
                 // std::mem::forget();
-                index.nodes.remove(pos);
-                index.nodes.insert(pos, newLeftNode);
-                index.nodes.insert(pos+1, newRightNode);
+                let indexItem = match index.items.get_mut(pageIndex) {
+                    Some(item) => {
+                        item
+                    },
+                    None => {
+                        panic!("should not happen");
+                    }
+                };
+                println!("#### {}, {} ###", pageIndex, position);
+                indexItem.nodes.remove(position);
+                indexItem.nodes.insert(position, *newLeftNode);
+                indexItem.nodes.insert(position+1, *newRightNode);
                 // println!("index: {:?}", &index.nodes);
                 /*
                 ** Update newIndex parent
@@ -255,39 +290,254 @@ impl BPlusTree {
                 /*
                 ** Determine the size of the elements in the inode and decide whether to split
                 */
-                let len = index.keys.len();
+                let len = indexItem.keys.len();
                 if len > size {
                     let keyDecidePos = len / 2;
-                    let newIndexKey = match index.keys.get(keyDecidePos) {
+                    let newIndexKey = match indexItem.keys.get(keyDecidePos) {
                         Some(key) => key,
                         None => {
                             panic!("This should not happen");
                         }
                     };
-                    println!("--- {:?}, {:?} ---", &index.keys, &newIndexKey);
+                    println!("--- {:?}, {:?} {:?}, {:?} ---", &indexItem.keys[0..keyDecidePos], &indexItem.keys[(keyDecidePos+1)..], &indexItem.keys, &newIndexKey);
                     let newIndexKeyClone = newIndexKey.to_string();
                     let mut leftIndexNode = Box::new(IndexNode{
                         parent: std::ptr::null_mut(),
-                        keys: index.keys[0..keyDecidePos].to_vec(),
-                        nodes: index.nodes[0..(keyDecidePos+1)].to_vec()
+                        items: vec![IndexItem{
+                            keys: indexItem.keys[0..keyDecidePos].to_vec(),
+                            nodes: indexItem.nodes[0..(keyDecidePos+1)].to_vec()
+                        }]
                     });
-                    let leftIndex = Node::Index(&mut *leftIndexNode);
                     let mut rightIndexNode = Box::new(IndexNode{
                         parent: std::ptr::null_mut(),
-                        keys: index.keys[(keyDecidePos+1)..].to_vec(),
-                        nodes: index.nodes[(keyDecidePos+1)..].to_vec()
+                        items: vec![IndexItem{
+                            keys: indexItem.keys[(keyDecidePos+1)..].to_vec(),
+                            nodes: indexItem.nodes[(keyDecidePos+1)..].to_vec()
+                        }]
                     });
+                    /*
+                    ** 待优化, 去除 parent / index 指针
+                    */
+                    let mut leftIndexNodePtr: *mut IndexNode = &mut *leftIndexNode;
+                    let mut rightIndexNodePtr: *mut IndexNode = &mut *rightIndexNode;
+                    for item in leftIndexNode.items.iter_mut() {
+                        for nodePtr in item.nodes.iter_mut() {
+                            match unsafe{nodePtr.as_mut()} {
+                                Some(node) => {
+                                    match node {
+                                        Node::Index(p) => {
+                                            match unsafe{p.as_mut()} {
+                                                Some(n) => {
+                                                    n.parent = leftIndexNodePtr;
+                                                },
+                                                None => {
+                                                }
+                                            }
+                                        },
+                                        Node::Leaf(p) => {
+                                            match unsafe{p.as_mut()} {
+                                                Some(n) => {
+                                                    n.index = leftIndexNodePtr;
+                                                },
+                                                None => {
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                None => {
+                                }
+                            }
+                        }
+                    }
+                    for item in rightIndexNode.items.iter_mut() {
+                        for nodePtr in item.nodes.iter_mut() {
+                            match unsafe{nodePtr.as_mut()} {
+                                Some(node) => {
+                                    match node {
+                                        Node::Index(p) => {
+                                            match unsafe{p.as_mut()} {
+                                                Some(n) => {
+                                                    n.parent = rightIndexNodePtr;
+                                                },
+                                                None => {
+                                                }
+                                            }
+                                        },
+                                        Node::Leaf(p) => {
+                                            match unsafe{p.as_mut()} {
+                                                Some(n) => {
+                                                    n.index = rightIndexNodePtr;
+                                                },
+                                                None => {
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                None => {
+                                }
+                            }
+                        }
+                    }
+                    /*
+                    /*
+                    ** 计算新增的左节点的parent是在分裂之后的前一个还是后一个
+                    */
+                    match unsafe{newLeftNode.as_mut()} {
+                        Some(node) => {
+                            match node {
+                                Node::Index(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            if position < keyDecidePos + 1 {
+                                                n.parent = &mut *leftIndexNode;
+                                            } else {
+                                                n.parent = &mut *rightIndexNode;
+                                            }
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                },
+                                Node::Leaf(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            if position < keyDecidePos + 1 {
+                                                n.index = &mut *leftIndexNode;
+                                                println!("################ 1, {:?}", n.index);
+                                            } else {
+                                                n.index = &mut *rightIndexNode;
+                                                println!("################ 2, {:?}", n.index);
+                                            }
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        None => {
+                        }
+                    }
+                    /*
+                    ** 计算新增的右节点的parent是在分裂之后的前一个还是后一个
+                    */
+                    match unsafe{newRightNode.as_mut()} {
+                        Some(node) => {
+                            match node {
+                                Node::Index(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            if position + 1 < keyDecidePos + 1 {
+                                                n.parent = &mut *leftIndexNode;
+                                            } else {
+                                                n.parent = &mut *rightIndexNode;
+                                            }
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                },
+                                Node::Leaf(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            if position + 1 < keyDecidePos + 1 {
+                                                n.index = &mut *leftIndexNode;
+                                                println!("################ 3");
+                                            } else {
+                                                n.index = &mut *rightIndexNode;
+                                                println!("################ 4, {:?}", n.index);
+                                            }
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        None => {
+                        }
+                    }
+                    leftIndexNode.items = vec![IndexItem{
+                        keys: indexItem.keys[0..keyDecidePos].to_vec(),
+                        nodes: indexItem.nodes[0..(keyDecidePos+1)].to_vec()
+                    }];
+                    rightIndexNode.items = vec![IndexItem{
+                        keys: indexItem.keys[(keyDecidePos+1)..].to_vec(),
+                        nodes: indexItem.nodes[(keyDecidePos+1)..].to_vec()
+                    }];
+                    */
+                    let leftIndex = Node::Index(&mut *leftIndexNode);
                     let rightIndex = Node::Index(&mut *rightIndexNode);
-                    index.keys.remove(keyDecidePos);
+                    indexItem.keys.remove(keyDecidePos);
                     let mut leftIndexBox = Box::new(leftIndex);
                     let mut rightIndexBox = Box::new(rightIndex);
-                    BPlusTree::populate_the_inode(&newIndexKeyClone, &mut *leftIndexBox, &mut *rightIndexBox, &mut index.parent, root, size);
-                    leftIndexNode.parent = index.parent;
-                    rightIndexNode.parent = index.parent;
+                    let mut leftIndexBoxPtr: *mut Node = &mut *leftIndexBox;
+                    let mut rightIndexBoxPtr: *mut Node = &mut *rightIndexBox;
+                    BPlusTree::populate_the_inode(&newIndexKeyClone, &mut leftIndexBoxPtr, &mut rightIndexBoxPtr, &mut index.parent, root, size);
+                    // leftIndexNode.parent = index.parent;
+                    // rightIndexNode.parent = index.parent;
                     mem::forget(leftIndexNode);
                     mem::forget(rightIndexNode);
                     mem::forget(leftIndexBox);
                     mem::forget(rightIndexBox);
+                } else {
+                    match unsafe{newLeftNode.as_mut()} {
+                        Some(node) => {
+                            match node {
+                                Node::Index(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            n.parent = *parent;
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                },
+                                Node::Leaf(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            n.index = *parent;
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        None => {
+                        }
+                    }
+                    /*
+                    ** 计算新增的右节点的parent是在分裂之后的前一个还是后一个
+                    */
+                    match unsafe{newRightNode.as_mut()} {
+                        Some(node) => {
+                            match node {
+                                Node::Index(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            n.parent = *parent;
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                },
+                                Node::Leaf(p) => {
+                                    match unsafe{p.as_mut()} {
+                                        Some(n) => {
+                                            n.index = *parent;
+                                        },
+                                        None => {
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        None => {
+                        }
+                    }
                 }
             },
             None => {
@@ -297,12 +547,69 @@ impl BPlusTree {
                 */
                 let mut newIndex = IndexNode {
                     parent: std::ptr::null_mut(),
-                    keys: vec![newKey.to_string()],
-                    nodes: vec![newLeftNode, newRightNode]
+                    items: vec![IndexItem{
+                        keys: vec![newKey.to_string()],
+                        nodes: vec![*newLeftNode, *newRightNode]
+                    }],
                 };
                 let mut newIndexBox = Box::new(newIndex);
                 *parent = &mut *newIndexBox;
                 *root = Node::Index(*parent);
+                match unsafe{newLeftNode.as_mut()} {
+                    Some(node) => {
+                        match node {
+                            Node::Index(p) => {
+                                match unsafe{p.as_mut()} {
+                                    Some(n) => {
+                                        n.parent = *parent;
+                                    },
+                                    None => {
+                                    }
+                                }
+                            },
+                            Node::Leaf(p) => {
+                                match unsafe{p.as_mut()} {
+                                    Some(n) => {
+                                        n.index = *parent;
+                                    },
+                                    None => {
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+                /*
+                ** 计算新增的右节点的parent是在分裂之后的前一个还是后一个
+                */
+                match unsafe{newRightNode.as_mut()} {
+                    Some(node) => {
+                        match node {
+                            Node::Index(p) => {
+                                match unsafe{p.as_mut()} {
+                                    Some(n) => {
+                                        n.parent = *parent;
+                                    },
+                                    None => {
+                                    }
+                                }
+                            },
+                            Node::Leaf(p) => {
+                                match unsafe{p.as_mut()} {
+                                    Some(n) => {
+                                        n.index = *parent;
+                                    },
+                                    None => {
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
                 // println!("update root, key: {}", newKey);
                 mem::forget(newIndexBox);
                 // println!("pop parent");
@@ -319,54 +626,82 @@ impl BPlusTree {
                 */
                 match unsafe{node.as_mut()} {
                     Some(index) => {
-                        // println!("index: {:?}", &index.keys);
-                        match index.keys.iter().position(|it| {
-                            it.as_str() >= key
-                        }) {
-                            Some(pos) => {
-                                /*
-                                ** There are nodes larger than the key
-                                ** Find the node path at this location
-                                */
-                                match index.nodes.get_mut(pos) {
-                                    Some(node) => {
-                                        return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
-                                            Some(n) => n,
+                        /*
+                        ** 从左边开始查找, 找到所有页中最大值大于key的页
+                        */
+                        let itemsLen = index.items.len();
+                        let mut pageIndex = 0;
+                        for (i, item) in index.items.iter_mut().enumerate() {
+                            match item.keys.last_mut() {
+                                Some(k) => {
+                                    if k.as_str() > key {
+                                        pageIndex = i;
+                                        break;
+                                    }
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            }
+                            if i == itemsLen - 1 {
+                                pageIndex = i;
+                            }
+                        }
+                        match index.items.get_mut(pageIndex) {
+                            Some(item) => {
+                                // println!("index: {:?}", &index.keys);
+                                match item.keys.iter().position(|it| {
+                                    it.as_str() >= key
+                                }) {
+                                    Some(pos) => {
+                                        /*
+                                        ** There are nodes larger than the key
+                                        ** Find the node path at this location
+                                        */
+                                        match item.nodes.get_mut(pos) {
+                                            Some(node) => {
+                                                return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
+                                                    Some(n) => n,
+                                                    None => {
+                                                        panic!("should not happend");
+                                                    }
+                                                });
+                                            },
                                             None => {
-                                                panic!("should not happend");
+                                                /*
+                                                ** This should not happen
+                                                */
+                                                panic!("find_leaf index.nodes.get(pos) is none, This should not happen");
                                             }
-                                        });
+                                        }
                                     },
                                     None => {
                                         /*
-                                        ** This should not happen
+                                        ** There are no nodes larger than the key
+                                        ** Get the last path in the path list
                                         */
-                                        panic!("find_leaf index.nodes.get(pos) is none, This should not happen");
+                                        match item.nodes.last_mut() {
+                                            Some(node) => {
+                                                return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
+                                                    Some(n) => n,
+                                                    None => {
+                                                        panic!("should not happend");
+                                                    }
+                                                });
+                                            },
+                                            None => {
+                                                /*
+                                                ** The path list is empty
+                                                ** This should not happen
+                                                */
+                                                panic!("find_leaf index.nodes.last() is none, This should not happen");
+                                            }
+                                        }
                                     }
                                 }
                             },
                             None => {
-                                /*
-                                ** There are no nodes larger than the key
-                                ** Get the last path in the path list
-                                */
-                                match index.nodes.last_mut() {
-                                    Some(node) => {
-                                        return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
-                                            Some(n) => n,
-                                            None => {
-                                                panic!("should not happend");
-                                            }
-                                        });
-                                    },
-                                    None => {
-                                        /*
-                                        ** The path list is empty
-                                        ** This should not happen
-                                        */
-                                        panic!("find_leaf index.nodes.last() is none, This should not happen");
-                                    }
-                                }
+                                panic!("should not happen");
                             }
                         }
                     },
@@ -438,36 +773,15 @@ impl BPlusTree {
             Node::Index(indexPtr) => {
                 match unsafe{indexPtr.as_mut()}.as_mut() {
                     Some(index) => {
-                        println!("parent: {:?}, keys: {:?}, nodes size: {}", index.parent, index.keys, index.nodes.len());
-                        /*
-                        for node in index.nodes.iter() {
-                            match unsafe{node.as_mut()}.as_mut() {
-                                Some(nd) => {
-                                    match nd {
-                                        Node::Index(p) => {
-                                            match unsafe{p.as_mut()}.as_mut() {
-                                                Some(idx) => {
-                                                    println!("parent: {:?}, keys: {:?}", idx.parent, idx.keys);
-                                                },
-                                                None => {
-                                                }
-                                            }
-                                        },
-                                        Node::Leaf(le) => {
-                                        }
+                        for item in index.items.iter() {
+                            println!("parent: {:?}, keys: {:?}, nodes size: {}", index.parent, item.keys, item.nodes.len());
+                            for node in item.nodes.iter() {
+                                match unsafe{node.as_mut()}.as_mut() {
+                                    Some(nd) => {
+                                        self.printTree(nd);
+                                    },
+                                    None => {
                                     }
-                                },
-                                None => {
-                                }
-                            }
-                        }
-                        */
-                        for node in index.nodes.iter() {
-                            match unsafe{node.as_mut()}.as_mut() {
-                                Some(nd) => {
-                                    self.printTree(nd);
-                                },
-                                None => {
                                 }
                             }
                         }
