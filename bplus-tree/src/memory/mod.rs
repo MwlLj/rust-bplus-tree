@@ -469,3 +469,4 @@ mod test {
 
 pub mod pointer;
 pub mod pointer_v2;
+pub mod pointer_v3;
