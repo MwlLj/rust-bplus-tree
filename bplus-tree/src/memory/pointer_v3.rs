@@ -163,6 +163,26 @@ impl BPlusTree {
                                         /*
                                         ** 需要新增节点
                                         */
+                                        match n {
+                                            Node::Index(indexPtr) => {
+                                                match unsafe{indexPtr.as_mut()} {
+                                                    Some(index) => {
+                                                    },
+                                                    None => {
+                                                        panic!("should not happen");
+                                                    }
+                                                }
+                                            },
+                                            Node::Leaf(leafPtr) => {
+                                                match unsafe{leafPtr.as_mut()} {
+                                                    Some(leaf) => {
+                                                    },
+                                                    None => {
+                                                        panic!("shoule not happen");
+                                                    }
+                                                }
+                                            }
+                                        }
                                     },
                                     None => {
                                     }
