@@ -31,6 +31,9 @@ struct IndexItem {
 
 #[derive(Clone, Debug)]
 struct IndexNode {
+    /*
+    ** 待优化, 将 parent 移动到 IndexItem 中
+    */
     parent: *mut IndexNode,
     items: Vec<IndexItem>
     // keys: Vec<String>,
@@ -242,7 +245,7 @@ impl BPlusTree {
                 let mut pageIndex = 0;
                 let mut position = 0;
                 let itemsLen = index.items.len();
-                println!("before populate, {:?}", &index.items);
+                // println!("before populate, {:?}", &index.items);
                 for (i, item) in index.items.iter_mut().enumerate() {
                     /*
                     ** 待优化, 不是全部遍历, 应该比较每一个item中的最大值和最小值
@@ -278,7 +281,7 @@ impl BPlusTree {
                         panic!("should not happen");
                     }
                 };
-                println!("#### {}, {} ###", pageIndex, position);
+                // println!("#### {}, {} ###", pageIndex, position);
                 indexItem.nodes.remove(position);
                 indexItem.nodes.insert(position, *newLeftNode);
                 indexItem.nodes.insert(position+1, *newRightNode);
@@ -299,7 +302,7 @@ impl BPlusTree {
                             panic!("This should not happen");
                         }
                     };
-                    println!("--- {:?}, {:?} {:?}, {:?} ---", &indexItem.keys[0..keyDecidePos], &indexItem.keys[(keyDecidePos+1)..], &indexItem.keys, &newIndexKey);
+                    // println!("--- {:?}, {:?} {:?}, {:?} ---", &indexItem.keys[0..keyDecidePos], &indexItem.keys[(keyDecidePos+1)..], &indexItem.keys, &newIndexKey);
                     let newIndexKeyClone = newIndexKey.to_string();
                     let mut leftIndexNode = Box::new(IndexNode{
                         parent: std::ptr::null_mut(),
@@ -773,8 +776,16 @@ impl BPlusTree {
             Node::Index(indexPtr) => {
                 match unsafe{indexPtr.as_mut()}.as_mut() {
                     Some(index) => {
+                        print!("index =>\n\t");
                         for item in index.items.iter() {
-                            println!("parent: {:?}, keys: {:?}, nodes size: {}", index.parent, item.keys, item.nodes.len());
+                            // println!("index => parent: {:?}, keys: {:?}, nodes size: {}", index.parent, item.keys, item.nodes.len());
+                            for key in item.keys.iter() {
+                                print!("{}\t", key);
+                            }
+                        }
+                        print!("\n");
+                        for item in index.items.iter() {
+                            print!("parent keys: {:?}\n", &item.keys);
                             for node in item.nodes.iter() {
                                 match unsafe{node.as_mut()}.as_mut() {
                                     Some(nd) => {
@@ -793,7 +804,8 @@ impl BPlusTree {
             Node::Leaf(leafPtr) => {
                 match unsafe{leafPtr.as_mut()}.as_mut() {
                     Some(leaf) => {
-                        println!("index: {:?}, item: {:?}", leaf.index, leaf.items);
+                        // println!("leaf => index: {:?}, item: {:?}", leaf.index, leaf.items);
+                        println!("leaf => item: {:?}", leaf.items);
                     },
                     None => {
                     }
