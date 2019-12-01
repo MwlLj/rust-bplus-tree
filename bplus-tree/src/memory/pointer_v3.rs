@@ -57,7 +57,12 @@ pub struct BPlusTree {
 
 impl BPlusTree {
     pub fn insert(&mut self, key: String, value: String) {
-        BPlusTree::insert_inner(key, value, &mut self.root, self.size);
+        BPlusTree::insert_inner(key, value, &mut self.root, self.size, true);
+        self.printTree(&self.root);
+    }
+
+    pub fn get(&self, key: &str) -> Option<String> {
+        self.get_inner(key, &self.root)
     }
 
     /*
@@ -73,7 +78,7 @@ impl BPlusTree {
 }
 
 impl BPlusTree {
-    fn insert_inner(key: String, value: String, root: &mut Node, size: usize) -> Option<Populate> {
+    fn insert_inner(key: String, value: String, root: &mut Node, size: usize, isRoot: bool) -> Option<Populate> {
         match root {
             Node::Index(node) => {
                 /*
@@ -158,30 +163,92 @@ impl BPlusTree {
                                 ** 递归插入
                                 ** 并根据返回值判断是否需要在本节点新增数据
                                 */
-                                match BPlusTree::insert_inner(key, value, n, size) {
+                                match BPlusTree::insert_inner(key, value, n, size, false) {
                                     Some(populate) => {
                                         /*
                                         ** 需要新增节点
                                         */
-                                        match n {
-                                            Node::Index(indexPtr) => {
-                                                match unsafe{indexPtr.as_mut()} {
-                                                    Some(index) => {
-                                                    },
-                                                    None => {
-                                                        panic!("should not happen");
-                                                    }
-                                                }
+                                        /*
+                                        ** 查找需要新增的节点的插入位置
+                                        */
+                                        let pos = match indexPage.keys.iter().position(|it| {
+                                            populate.newKey.as_str() < it
+                                        }) {
+                                            Some(pos) => {
+                                                pos
                                             },
-                                            Node::Leaf(leafPtr) => {
-                                                match unsafe{leafPtr.as_mut()} {
-                                                    Some(leaf) => {
-                                                    },
-                                                    None => {
-                                                        panic!("shoule not happen");
-                                                    }
-                                                }
+                                            None => {
+                                                indexPage.keys.len()
                                             }
+                                        };
+                                        /*
+                                        ** 插入到 keys 中
+                                        */
+                                        indexPage.keys.insert(pos, populate.newKey.clone());
+                                        /*
+                                        ** 更新 nodes
+                                        */
+                                        indexPage.nodes.remove(pos);
+                                        indexPage.nodes.insert(pos, populate.newLeftNode);
+                                        indexPage.nodes.insert(pos+1, populate.newRightNode);
+                                        /*
+                                        ** 判断是否需要分裂
+                                        */
+                                        let len = indexPage.keys.len();
+                                        if len > size {
+                                            /*
+                                            ** 返回分裂的值
+                                            */
+                                            let keyDecidePos = len / 2;
+                                            let newIndexKey = match indexPage.keys.get(keyDecidePos) {
+                                                Some(key) => key.to_string(),
+                                                None => {
+                                                    panic!("should not happen");
+                                                }
+                                            };
+                                            let mut leftIndexNode = Box::new(IndexNode{
+                                                pages: vec![IndexPage{
+                                                    keys: indexPage.keys[0..keyDecidePos].to_vec(),
+                                                    nodes: indexPage.nodes[0..(keyDecidePos+1)].to_vec()
+                                                }]
+                                            });
+                                            let mut rightIndexNode = Box::new(IndexNode{
+                                                pages: vec![IndexPage{
+                                                    keys: indexPage.keys[(keyDecidePos+1)..].to_vec(),
+                                                    nodes: indexPage.nodes[(keyDecidePos+1)..].to_vec()
+                                                }]
+                                            });
+                                            let leftIndex = Node::Index(&mut *leftIndexNode);
+                                            let rightIndex = Node::Index(&mut *rightIndexNode);
+                                            indexPage.keys.remove(keyDecidePos);
+                                            let mut leftIndexBox = Box::new(leftIndex);
+                                            let mut rightIndexBox = Box::new(rightIndex);
+                                            let mut leftIndexBoxPtr: *mut Node = &mut *leftIndexBox;
+                                            let mut rightIndexBoxPtr: *mut Node = &mut *rightIndexBox;
+                                            if isRoot {
+                                                let mut newIndex = IndexNode {
+                                                    pages: vec![IndexPage{
+                                                        keys: vec![newIndexKey.clone()],
+                                                        nodes: vec![leftIndexBoxPtr, rightIndexBoxPtr]
+                                                    }]
+                                                };
+                                                let mut newIndexBox = Box::new(newIndex);
+                                                *root = Node::Index(&mut *newIndexBox);
+                                                mem::forget(newIndexBox);
+                                            }
+                                            mem::forget(leftIndexNode);
+                                            mem::forget(rightIndexNode);
+                                            mem::forget(leftIndexBox);
+                                            mem::forget(rightIndexBox);
+                                            return Some(Populate{
+                                                newKey: newIndexKey,
+                                                newLeftNode: leftIndexBoxPtr,
+                                                newRightNode: rightIndexBoxPtr
+                                            });
+                                        } else {
+                                            /*
+                                            ** 不需要分裂
+                                            */
                                         }
                                     },
                                     None => {
@@ -214,7 +281,7 @@ impl BPlusTree {
                                 /*
                                 ** 插入到最后
                                 */
-                                leaf.items.len() - 1
+                                leaf.items.len()
                             }
                         };
                         leaf.items.insert(pos, Item{
@@ -246,6 +313,17 @@ impl BPlusTree {
                             let mut rightNode = Box::new(Node::Leaf(&mut *rightLeafNode));
                             let mut leftNodePtr: *mut Node = &mut *leftNode;
                             let mut rightNodePtr: *mut Node = &mut *rightNode;
+                            if isRoot {
+                                let mut newIndex = IndexNode {
+                                    pages: vec![IndexPage{
+                                        keys: vec![k.to_string()],
+                                        nodes: vec![leftNodePtr, rightNodePtr]
+                                    }]
+                                };
+                                let mut newIndexBox = Box::new(newIndex);
+                                *root = Node::Index(&mut *newIndexBox);
+                                mem::forget(newIndexBox);
+                            }
                             mem::forget(leftLeafNode);
                             mem::forget(rightLeafNode);
                             mem::forget(leftNode);
@@ -277,6 +355,188 @@ impl BPlusTree {
         }
         None
     }
+
+    fn get_inner(&self, key: &str, root: &Node) -> Option<String> {
+        match root {
+            Node::Index(indexPtr) => {
+                match unsafe{indexPtr.as_mut()} {
+                    Some(index) => {
+                        let indexPage = match index.pages.iter().position(|it| {
+                            /*
+                            ** 比较每一个页中的最大值
+                            */
+                            match it.keys.last() {
+                                Some(last) => {
+                                    key < last
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            }
+                        }) {
+                            Some(pos) => {
+                                match index.pages.get_mut(pos) {
+                                    Some(page) => {
+                                        page
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            },
+                            None => {
+                                /*
+                                ** 没有找到, 插入到最后
+                                */
+                                match index.pages.last_mut() {
+                                    Some(page) => {
+                                        page
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            }
+                        };
+                        /*
+                        ** 比较页中的keys, 找到待插入的 node
+                        */
+                        let childrenNode = match indexPage.keys.iter().position(|it| {
+                            key < it
+                        }) {
+                            Some(pos) => {
+                                /*
+                                ** 根据 pos 从 nodes 中获取指定位置的 node
+                                */
+                                match indexPage.nodes.get_mut(pos) {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            },
+                            None => {
+                                /*
+                                ** 获取 nodes 中最后一个 node
+                                */
+                                match indexPage.nodes.last_mut() {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            }
+                        };
+                        match unsafe{childrenNode.as_mut()} {
+                            Some(n) => {
+                                return self.get_inner(key, n);
+                            },
+                            None => {
+                                panic!("should not happen");
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+            },
+            Node::Leaf(leafPtr) => {
+                match unsafe{leafPtr.as_mut()} {
+                    Some(leaf) => {
+                        match self.binary_find(key, &leaf.items) {
+                            Some(it) => {
+                                return Some(it.value.to_string());
+                            }, 
+                            None => {
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn binary_find<'a>(&self, key: &str, items: &'a [Item]) -> Option<&'a Item> {
+        let mid = match items.get(items.len() / 2) {
+            Some(item) => {
+                item
+            },
+            None => {
+                return None;
+            }
+        };
+        if mid.key.as_str() == key {
+            return Some(mid);
+        } else if mid.key.as_str() > key {
+            let sub = match items.get(..(items.len() / 2)) {
+                Some(s) => s,
+                None => {
+                    return None;
+                }
+            };
+            return self.binary_find(key, sub);
+        } else {
+            let sub = match items.get((items.len() / 2)..) {
+                Some(s) => s,
+                None => {
+                    return None;
+                }
+            };
+            return self.binary_find(key, sub);
+        }
+    }
+}
+
+impl BPlusTree {
+    fn printTree(&self, root: &Node) {
+        match root {
+            Node::Index(indexPtr) => {
+                match unsafe{indexPtr.as_mut()}.as_mut() {
+                    Some(index) => {
+                        print!("index =>\n\t");
+                        for item in index.pages.iter() {
+                            // println!("index => parent: {:?}, keys: {:?}, nodes size: {}", index.parent, item.keys, item.nodes.len());
+                            for key in item.keys.iter() {
+                                print!("{}\t", key);
+                            }
+                        }
+                        print!("\n");
+                        for item in index.pages.iter() {
+                            print!("parent keys: {:?}\n", &item.keys);
+                            for node in item.nodes.iter() {
+                                match unsafe{node.as_mut()}.as_mut() {
+                                    Some(nd) => {
+                                        self.printTree(nd);
+                                    },
+                                    None => {
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+            },
+            Node::Leaf(leafPtr) => {
+                match unsafe{leafPtr.as_mut()}.as_mut() {
+                    Some(leaf) => {
+                        // println!("leaf => index: {:?}, item: {:?}", leaf.index, leaf.items);
+                        println!("leaf => item: {:?}", leaf.items);
+                    },
+                    None => {
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl BPlusTree {
@@ -293,27 +553,30 @@ mod test {
     use super::*;
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn insertTest() {
         let mut btree = BPlusTree::new(2);
         btree.insert("1".to_string(), "hello".to_string());
         btree.insert("2".to_string(), "world".to_string());
         btree.insert("3".to_string(), "hello world".to_string());
-        // btree.insert("4".to_string(), "hello".to_string());
-        // btree.insert("5".to_string(), "world".to_string());
-        // btree.insert("6".to_string(), "hello world".to_string());
+        btree.insert("4".to_string(), "hello".to_string());
+        btree.insert("5".to_string(), "world".to_string());
+        btree.insert("6".to_string(), "hello world".to_string());
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn getTest() {
         let mut btree = BPlusTree::new(2);
-        btree.insert("1".to_string(), "hello".to_string());
-        btree.insert("2".to_string(), "world".to_string());
-        btree.insert("3".to_string(), "hello world".to_string());
-        btree.insert("4".to_string(), "hello world".to_string());
-        btree.insert("5".to_string(), "hello world".to_string());
-        btree.insert("6".to_string(), "hello world".to_string());
+        btree.insert("1".to_string(), "v 1".to_string());
+        btree.insert("2".to_string(), "v 2".to_string());
+        btree.insert("3".to_string(), "v 3".to_string());
+        btree.insert("4".to_string(), "v 4".to_string());
+        btree.insert("5".to_string(), "v 5".to_string());
+        btree.insert("6".to_string(), "v 6".to_string());
+        btree.insert("7".to_string(), "v 7".to_string());
+        btree.insert("8".to_string(), "v 8".to_string());
+        btree.insert("9".to_string(), "v 9".to_string());
         match btree.get("3") {
             Some(v) => {
                 println!("{:?}", v);
