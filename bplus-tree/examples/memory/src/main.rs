@@ -1,5 +1,7 @@
 use bplus_tree::memory;
-use memory::pointer_v2::BPlusTree;
+use memory::pointer_v3::BPlusTree;
+
+use std::time;
 
 fn pointerTest() {
     let mut btree = BPlusTree::new(2);
@@ -33,21 +35,25 @@ fn pointerTest() {
 fn pointerRandTest() {
     let mut btree = BPlusTree::new(2);
     let mut keys = Vec::new();
-    for index in 0..20 {
+    println!("start insert, {:?}", time::SystemTime::now());
+    for index in 0..10000 {
         let uid = uuid::Uuid::new_v4().to_string();
         btree.insert(uid.clone(), uid.clone());
         keys.push(uid.clone());
     }
+    println!("end insert, {:?}", time::SystemTime::now());
+    println!("start query, {:?}", time::SystemTime::now());
     for item in keys.iter() {
         match btree.get(item) {
             Some(v) => {
-                println!("find: key: {}, value: {}", item, v);
+                // println!("find: key: {}, value: {}", item, v);
             },
             None => {
                 println!("key: {}, not found", item);
             }
         }
     }
+    println!("end query, {:?}", time::SystemTime::now());
 }
 
 fn main() {

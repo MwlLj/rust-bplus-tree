@@ -57,8 +57,9 @@ pub struct BPlusTree {
 
 impl BPlusTree {
     pub fn insert(&mut self, key: String, value: String) {
+        // println!("--------------{}---------------", &key);
         BPlusTree::insert_inner(key, value, &mut self.root, self.size, true);
-        self.printTree(&self.root);
+        // self.printTree(&self.root);
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
@@ -386,7 +387,7 @@ impl BPlusTree {
                             },
                             None => {
                                 /*
-                                ** 没有找到, 插入到最后
+                                ** 没有找到, 获取最后一个
                                 */
                                 match index.pages.last_mut() {
                                     Some(page) => {
@@ -399,10 +400,10 @@ impl BPlusTree {
                             }
                         };
                         /*
-                        ** 比较页中的keys, 找到待插入的 node
+                        ** 比较页中的keys, 找到key存在的 node
                         */
                         let childrenNode = match indexPage.keys.iter().position(|it| {
-                            key < it
+                            key <= it
                         }) {
                             Some(pos) => {
                                 /*
