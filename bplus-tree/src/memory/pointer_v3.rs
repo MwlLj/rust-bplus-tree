@@ -18,6 +18,7 @@ impl Item {
 #[derive(Clone, Debug)]
 struct LeafNode {
     items: Vec<Item>,
+    pre: *mut LeafNode,
     next: *mut LeafNode
 }
 
@@ -52,13 +53,14 @@ struct Populate {
 
 pub struct BPlusTree {
     size: usize,
-    root: Node
+    root: Node,
+    firstLeaf: *mut LeafNode
 }
 
 impl BPlusTree {
     pub fn insert(&mut self, key: String, value: String) {
         // println!("--------------{}---------------", &key);
-        BPlusTree::insert_inner(key, value, &mut self.root, self.size, true);
+        BPlusTree::insert_inner(key, value, &mut self.root, self.size, true, &mut self.firstLeaf);
         // self.printTree(&self.root);
     }
 
@@ -79,7 +81,7 @@ impl BPlusTree {
 }
 
 impl BPlusTree {
-    fn insert_inner(key: String, value: String, root: &mut Node, size: usize, isRoot: bool) -> Option<Populate> {
+    fn insert_inner(key: String, value: String, root: &mut Node, size: usize, isRoot: bool, firstLeaf: &mut *mut LeafNode) -> Option<Populate> {
         match root {
             Node::Index(node) => {
                 /*
@@ -164,7 +166,7 @@ impl BPlusTree {
                                 ** 递归插入
                                 ** 并根据返回值判断是否需要在本节点新增数据
                                 */
-                                match BPlusTree::insert_inner(key, value, n, size, false) {
+                                match BPlusTree::insert_inner(key, value, n, size, false, firstLeaf) {
                                     Some(populate) => {
                                         /*
                                         ** 需要新增节点
@@ -304,12 +306,21 @@ impl BPlusTree {
                             let right = leaf.items.split_off(size / 2 + 1);
                             let mut rightLeafNode = Box::new(LeafNode{
                                 items: right.clone(),
-                                next: std::ptr::null_mut()
+                                pre: std::ptr::null_mut(),
+                                next: leaf.next
                             });
                             let mut leftLeafNode = Box::new(LeafNode{
                                 items: leaf.items.clone(),
+                                pre: leaf.pre,
                                 next: &mut *rightLeafNode
                             });
+                            if leaf.pre.is_null() {
+                                /*
+                                ** 说明第一个节点发生了分裂, 则将新的节点变为首节点
+                                */
+                                *firstLeaf = &mut *leftLeafNode;
+                            }
+                            rightLeafNode.pre = &mut *leftLeafNode;
                             let mut leftNode = Box::new(Node::Leaf(&mut *leftLeafNode));
                             let mut rightNode = Box::new(Node::Leaf(&mut *rightLeafNode));
                             let mut leftNodePtr: *mut Node = &mut *leftNode;
@@ -346,6 +357,7 @@ impl BPlusTree {
                         */
                         let mut leafNode = Box::new(LeafNode{
                             items: vec![Item::new(key.clone(), value)],
+                            pre: std::ptr::null_mut(),
                             next: std::ptr::null_mut()
                         });
                         *root = Node::Leaf(&mut *leafNode);
@@ -355,6 +367,56 @@ impl BPlusTree {
             }
         }
         None
+    }
+
+    fn remove_inner(key: &str, root: &mut Node, size: usize) {
+        match root {
+            Node::Index(indexPtr) => {
+                match unsafe{indexPtr.as_mut()} {
+                    Some(index) => {
+                    },
+                    None => {
+                        panic!("should not happen");
+                    }
+                }
+            },
+            Node::Leaf(leafPtr) => {
+                match unsafe{leafPtr.as_mut()} {
+                    Some(leaf) => {
+                        /*
+                        ** 搜索待删除的数据节点
+                        */
+                        let pos = match leaf.items.iter().position(|it| {
+                            key < it.key.as_str()
+                        }) {
+                            Some(pos) => {
+                                pos
+                            },
+                            None => {
+                                leaf.items.len() - 1
+                            }
+                        };
+                        leaf.items.remove(pos);
+                        /*
+                        ** 检测是否需要合并/借用
+                        */
+                        let itemLen = leaf.items.len();
+                        if itemLen < ((size + 1) / 2) {
+                            /*
+                            ** 判断兄弟节点是否有富余的节点
+                            */
+                        } else {
+                            /*
+                            ** 删除结束
+                            */
+                        }
+                    },
+                    None => {
+                        panic!("should not happen");
+                    }
+                }
+            }
+        }
     }
 
     fn get_inner(&self, key: &str, root: &Node) -> Option<String> {
@@ -544,7 +606,8 @@ impl BPlusTree {
     pub fn new(size: usize) -> Self {
         Self {
             size: size,
-            root: Node::default()
+            root: Node::default(),
+            firstLeaf: std::ptr::null_mut()
         }
     }
 }

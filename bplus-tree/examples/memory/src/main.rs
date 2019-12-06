@@ -4,7 +4,7 @@ use memory::pointer_v3::BPlusTree;
 use std::time;
 
 fn pointerTest() {
-    let mut btree = BPlusTree::new(2);
+    let mut btree = BPlusTree::new(3);
     btree.insert("8".to_string(), "hello world 8".to_string());
     btree.insert("0".to_string(), "hello world 0".to_string());
     btree.insert("6".to_string(), "hello world 6".to_string());
@@ -33,10 +33,10 @@ fn pointerTest() {
 }
 
 fn pointerRandTest() {
-    let mut btree = BPlusTree::new(2);
+    let mut btree = BPlusTree::new(50);
     let mut keys = Vec::new();
     println!("start insert, {:?}", time::SystemTime::now());
-    for index in 0..10000 {
+    for index in 0..100000 {
         let uid = uuid::Uuid::new_v4().to_string();
         btree.insert(uid.clone(), uid.clone());
         keys.push(uid.clone());
@@ -57,6 +57,6 @@ fn pointerRandTest() {
 }
 
 fn main() {
-    // pointerTest();
-    pointerRandTest();
+    pointerTest();
+    // pointerRandTest();
 }
