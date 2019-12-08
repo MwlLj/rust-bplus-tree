@@ -385,6 +385,21 @@ impl BPlusTree {
                     }
                 }
                 /*
+                ** 判断是否存在存在索引页
+                */
+                let parentIndex = match indexPage {
+                    Some(idx) => {
+                        idx
+                    },
+                    None => {
+                        /*
+                        ** 如果没有, 则是最上层的根索引节点
+                        ** 则删除结束
+                        */
+                        return RemoveResult::End;
+                    }
+                };
+                /*
                 ** removeResult == RemoveResult::Continue
                 ** => 递归的结果修改了 page 节点
                 */
@@ -397,22 +412,66 @@ impl BPlusTree {
                     */
                     if pos > 0 {
                         /*
-                        ** 判断是否存在存在索引页
+                        ** 获取左兄弟节点
                         */
-                        match indexPage {
-                            Some(index) => {
+                        let leftNodePtr = match parentIndex.nodes.get_mut(pos - 1) {
+                            Some(p) => {
+                                p
+                            },
+                            None => {
+                                panic!("should not happed");
+                            }
+                        };
+                        let leftNode = match unsafe{leftNodePtr.as_mut()} {
+                            Some(node) => {
+                                node
+                            },
+                            None => {
+                                panic!("should not happen");
+                            }
+                        };
+                        let leftIndexPtr = match leftNode {
+                            Node::Index(p) => {
+                                p
+                            },
+                            Node::Leaf(_) => {
                                 /*
-                                ** 获取左兄弟节点
+                                ** 索引节点的兄弟一定不是叶子节点
                                 */
-                                let leftNodePtr = match index.nodes.get_mut(pos - 1) {
+                                panic!("should not happen");
+                            }
+                        };
+                        let leftIndex = match unsafe{leftIndexPtr.as_mut()} {
+                            Some(leftIndex) => {
+                                leftIndex
+                            },
+                            None => {
+                                panic!("should not happen");
+                            }
+                        };
+                        if leftIndex.keys.len() > ((size + 1) / 2) {
+                            /*
+                            ** 左兄弟节点有富余 (右旋操作)
+                            ** 1. indexPage.keys 中的 key (pos对应的key) 移除 并 添加到当前节点首部
+                            ** 2. 将左兄弟节点中的最后一个key 移除 并替换父节点移除位置的key
+                            */
+                        } else {
+                            /*
+                            ** 左兄弟节点没有富余, 判断右兄弟节点是否有富余
+                            */
+                            if pos + 1 < parentIndex.nodes.len() {
+                                /*
+                                ** 右兄弟节点存在
+                                */
+                                let rightNodePtr = match parentIndex.nodes.get_mut(pos + 1) {
                                     Some(p) => {
                                         p
                                     },
                                     None => {
-                                        panic!("should not happed");
+                                        panic!("should not happen");
                                     }
                                 };
-                                let leftNode = match unsafe{leftNodePtr.as_mut()} {
+                                let rightNode = match unsafe{rightNodePtr.as_mut()} {
                                     Some(node) => {
                                         node
                                     },
@@ -420,97 +479,47 @@ impl BPlusTree {
                                         panic!("should not happen");
                                     }
                                 };
-                                let leftIndexPtr = match leftNode {
+                                let rightIndexPtr = match rightNode {
                                     Node::Index(p) => {
                                         p
                                     },
                                     Node::Leaf(_) => {
-                                        /*
-                                        ** 索引节点的兄弟一定不是叶子节点
-                                        */
                                         panic!("should not happen");
                                     }
                                 };
-                                let leftIndex = match unsafe{leftIndexPtr.as_mut()} {
-                                    Some(leftIndex) => {
-                                        leftIndex
+                                let rightIndex = match unsafe{rightIndexPtr.as_mut()} {
+                                    Some(l) => {
+                                        l
                                     },
                                     None => {
                                         panic!("should not happen");
                                     }
                                 };
-                                if leftIndex.keys.len() > ((size + 1) / 2) {
+                                if rightIndex.keys.len() > ((size + 1) / 2) {
                                     /*
-                                    ** 左兄弟节点有富余
-                                    ** 1. indexPage.keys 中的 key (pos对应的key) 移除 并 添加到当前节点中
-                                    ** 2. 将左兄弟节点中的最后一个key 移除 并替换父节点移除位置的key
+                                    ** 左兄弟节点不富余, 但是右兄弟节点富余
+                                    ** 1. indexPage.keys 中的 key (pos对应的key) 移除 并 添加到当前节点尾部
+                                    ** 2. 将右兄弟节点中的第一个key 移除 并替换父节点移除位置的key
                                     */
                                 } else {
                                     /*
-                                    ** 左兄弟节点没有富余, 判断右兄弟节点是否有富余
+                                    ** 左兄弟节点不富余, 右兄弟节点也不富余
+                                    ** 随意挑选左/右节点,indexPage.keys中的key,左兄弟节点 合并
+                                    ** 这里选取 左兄弟节点进行合并
+                                    **  => 将 indexPage.keys中的key 插入到左兄弟节点的末尾
+                                    **  => 将 当前节点的所有key插入到左兄弟节点的后面
+                                    ** 删除 indexPage.keys中的key(pos位置的key)
+                                    ** 删除 当前节点
                                     */
-                                    if pos + 1 < index.nodes.len() {
-                                        /*
-                                        ** 右兄弟节点存在
-                                        */
-                                        let rightNodePtr = match index.nodes.get_mut(pos + 1) {
-                                            Some(p) => {
-                                                p
-                                            },
-                                            None => {
-                                                panic!("should not happen");
-                                            }
-                                        };
-                                        let rightNode = match unsafe{rightNodePtr.as_mut()} {
-                                            Some(node) => {
-                                                node
-                                            },
-                                            None => {
-                                                panic!("should not happen");
-                                            }
-                                        };
-                                        let rightIndexPtr = match rightNode {
-                                            Node::Index(p) => {
-                                                p
-                                            },
-                                            Node::Leaf(_) => {
-                                                panic!("should not happen");
-                                            }
-                                        };
-                                        let rightIndex = match unsafe{rightIndexPtr.as_mut()} {
-                                            Some(l) => {
-                                                l
-                                            },
-                                            None => {
-                                                panic!("should not happen");
-                                            }
-                                        };
-                                        if rightIndex.keys.len() > ((size + 1) / 2) {
-                                            /*
-                                            ** 左兄弟节点不富余, 但是右兄弟节点富余
-                                            ** 1. indexPage.keys 中的 key (pos对应的key) 移除 并 添加到当前节点中
-                                            ** 2. 将右兄弟节点中的第一个key 移除 并替换父节点移除位置的key
-                                            */
-                                        } else {
-                                            /*
-                                            ** 左兄弟节点不富余, 右兄弟节点也不富余
-                                            ** 随意挑选左/右节点,indexPage.keys中的key,左兄弟节点 合并
-                                            ** 并删除 indexPage.keys中的key(pos位置的key)
-                                            */
-                                        }
-                                    } else {
-                                        /*
-                                        ** 不存在右兄弟节点, 且左兄弟节点没有富余
-                                        ** 则将 当前节点,indexPage.keys中的key,左兄弟节点 合并
-                                        ** 并删除 indexPage.keys中的key(pos位置的key)
-                                        */
-                                    }
                                 }
-                            },
-                            None => {
+                            } else {
                                 /*
-                                ** 如果没有, 则应该从根节点获取左右兄弟节点
-                                ** (位于最上层的索引节点)
+                                ** 不存在右兄弟节点, 且左兄弟节点没有富余
+                                ** 则将 当前节点,indexPage.keys中的key,左兄弟节点 合并
+                                **  => 将 indexPage.keys中的key 插入到左兄弟节点的末尾
+                                **  => 将 当前节点的所有key插入到左兄弟节点的后面
+                                ** 删除 indexPage.keys中的key(pos位置的key)
+                                ** 删除当前节点
                                 */
                             }
                         }
@@ -518,6 +527,68 @@ impl BPlusTree {
                         /*
                         ** 不存在左兄弟节点, 则判断右兄弟节点是否有富余
                         */
+                        if pos + 1 < parentIndex.nodes.len() {
+                            /*
+                            ** 右兄弟节点存在
+                            */
+                            let rightNodePtr = match parentIndex.nodes.get_mut(pos + 1) {
+                                Some(p) => {
+                                    p
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            let rightNode = match unsafe{rightNodePtr.as_mut()} {
+                                Some(node) => {
+                                    node
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            let rightIndexPtr = match rightNode {
+                                Node::Index(p) => {
+                                    p
+                                },
+                                Node::Leaf(_) => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            let rightIndex = match unsafe{rightIndexPtr.as_mut()} {
+                                Some(l) => {
+                                    l
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            if rightIndex.keys.len() > ((size + 1) / 2) {
+                                /*
+                                ** 无左兄弟节点, 但是右兄弟节点富余
+                                ** 1. indexPage.keys 中的 key (pos对应的key) 移除 并 添加到当前节点尾部
+                                ** 2. 将右兄弟节点中的第一个key 移除 并替换父节点移除位置的key
+                                */
+                            } else {
+                                /*
+                                ** 无左兄弟节点, 右兄弟节点也不富余
+                                ** 左兄弟节点,indexPage.keys中的key,左兄弟节点 合并
+                                **  => 将 indexPage.keys中的key 插入到左兄弟节点的末尾
+                                **  => 将 当前节点的所有key插入到左兄弟节点的后面
+                                ** 删除 indexPage.keys中的key(pos位置的key)
+                                ** 删除 当前节点
+                                */
+                            }
+                        } else {
+                            /*
+                            ** 左兄弟节点 和 右兄弟节点 都不存在
+                            ** 则将 当前节点,indexPage.keys中的key,左兄弟节点 合并
+                            **  => 将 indexPage.keys中的key 插入到左兄弟节点的末尾
+                            **  => 将 当前节点的所有key插入到左兄弟节点的后面
+                            ** 删除 indexPage.keys中的key(pos位置的key)
+                            ** 删除当前节点
+                            */
+                        }
                     }
                 } else {
                     /*
@@ -596,7 +667,7 @@ impl BPlusTree {
                             },
                             Node::Index(_) => {
                                 /*
-                                ** 这里不可能会是索引节点
+                                ** 这里不可能会是索引节点 (叶子节点的兄弟节点一定是叶子节点)
                                 */
                                 panic!("should not happen");
                             }
@@ -658,7 +729,7 @@ impl BPlusTree {
                                     /*
                                     ** 左兄弟节点不富余, 但是右兄弟节点富余
                                     ** 当前节点借用右兄弟节点的第一个元素到自身
-                                    ** 并且需要更新 indexPage.keys 中对应位置的key值
+                                    ** 并且需要更新 indexPage.keys 中对应位置的key值 为 右兄弟节点的第二个位置的key
                                     */
                                 } else {
                                     /*
@@ -673,7 +744,7 @@ impl BPlusTree {
                                 ** 表示:
                                 **      左兄弟节点和右兄弟节点都没有富余的节点
                                 **      这里将左兄弟节点和当前节点合并 (将当前节点放到左兄弟节点)
-                                ** 然后删除 indexPage.keys 中 pos - 1 处的 key, 并删除 nodes pos 位置的分支
+                                ** 然后删除 indexPage.keys 最后一个位置的key, 并删除 nodes 的最后一个 node
                                 */
                             }
                         }
@@ -716,7 +787,7 @@ impl BPlusTree {
                             };
                             if rightLeaf.items.len() > ((size + 1) / 2) {
                                 /*
-                                ** 左兄弟节点不富余, 但是右兄弟节点富余
+                                ** 无左兄弟节点, 但是右兄弟节点富余
                                 ** 当前节点借用右兄弟节点的第一个元素到自身
                                 ** 并且需要更新 indexPage.keys 中对应位置的key值
                                 */
@@ -724,7 +795,7 @@ impl BPlusTree {
                                 /*
                                 ** 无左兄弟节点, 且右节点也不富余
                                 ** 只能将右兄弟节点与当前节点合并 (将当前节点放到右兄弟节点)
-                                ** 然后删除 indexPage.keys 中 pos (这里的 pos 一定是 0) 处的 key, 并 删除 nodes pos 位置的分支
+                                ** 然后删除 indexPage.keys 中 第一个key, 并 删除 nodes 第一个node
                                 */
                             }
                         } else {
