@@ -1,10 +1,10 @@
 use bplus_tree::memory;
-use memory::pointer_v3::BPlusTree;
+use memory::pointer::BPlusTree;
 
 use std::time;
 
 fn pointerTest() {
-    let mut btree = BPlusTree::new(3);
+    let mut btree = BPlusTree::new(2);
     btree.insert("8".to_string(), "hello world 8".to_string());
     btree.insert("0".to_string(), "hello world 0".to_string());
     btree.insert("6".to_string(), "hello world 6".to_string());
@@ -57,6 +57,6 @@ fn pointerRandTest() {
 }
 
 fn main() {
-    pointerTest();
-    // pointerRandTest();
+    // pointerTest();
+    pointerRandTest();
 }

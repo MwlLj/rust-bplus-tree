@@ -3,8 +3,7 @@ use std::mem;
 #[derive(Clone, Debug)]
 struct Item {
     key: String,
-    value: String,
-    // item: *mut Item
+    value: String
 }
 
 impl Item {
@@ -18,88 +17,56 @@ impl Item {
 
 #[derive(Clone, Debug)]
 struct LeafNode {
-    index: *mut IndexNode,
     items: Vec<Item>,
+    pre: *mut LeafNode,
     next: *mut LeafNode
 }
 
 #[derive(Clone, Debug)]
 struct IndexNode {
-    parent: *mut IndexNode,
     keys: Vec<String>,
     nodes: Vec<*mut Node>
-    // nodes: Vec<Node>
 }
 
 #[derive(Clone, Debug)]
-struct Node {
-    index: Option<*mut IndexNode>,
-    leaf: Option<*mut LeafNode>
-    // index: Option<Box<IndexNode>>,
-    // leaf: Option<Box<LeafNode>>
+enum Node {
+    Index(*mut IndexNode),
+    Leaf(*mut LeafNode)
 }
 
 impl Default for Node {
     fn default() -> Self {
-        Self {
-            index: None,
-            leaf: None
-        }
+        Node::Leaf(std::ptr::null_mut())
     }
+}
+
+struct Populate {
+    newKey: String,
+    newLeftNode: *mut Node,
+    newRightNode: *mut Node
+}
+
+enum RemoveResult {
+    NotFound,
+    End,
+    Continue
 }
 
 pub struct BPlusTree {
     size: usize,
-    root: Node
+    root: Node,
+    firstLeaf: *mut LeafNode
 }
 
 impl BPlusTree {
     pub fn insert(&mut self, key: String, value: String) {
-        if self.root.index.is_some() {
-            /*
-            ** index node
-            */
-            /*
-            ** Find inserted leaf nodes
-            */
-            let leaf = match BPlusTree::find_leaf(&key, &mut self.root) {
-                Some(n) => n,
-                None => {
-                    panic!("insert self.root.index.is_some(), This should not happen");
-                }
-            };
-            let mut leaf = unsafe{leaf.as_mut()};
-            let leaf = leaf.as_mut().expect("should not happend");
-            self.insert_leaf(key, value, leaf);
-        } else {
-            /*
-            ** leaf node
-            ** If both are empty
-            ** , they should also be inserted in the leaf node (first insert)
-            */
-            match self.root.leaf.as_mut() {
-                Some(leafPtr) => {
-                    /*
-                    ** Insert before the first element larger than the input key
-                    */
-                    let mut leaf = unsafe{leafPtr.as_mut()};
-                    let leaf = leaf.as_mut().expect("should not happen");
-                    self.insert_leaf(key, value, leaf);
-                },
-                None => {
-                    /*
-                    ** First element, insert directly
-                    */
-                    let mut leafNode = Box::new(LeafNode{
-                        index: std::ptr::null_mut(),
-                        items: vec![Item::new(key, value)],
-                        next: std::ptr::null_mut()
-                    });
-                    self.root.leaf = Some(&mut *leafNode);
-                    mem::forget(leafNode);
-                }
-            }
-        }
+        // println!("--------------{}---------------", &key);
+        BPlusTree::insert_inner(key, value, &mut self.root, self.size, true, &mut self.firstLeaf);
+        // self.printTree(&self.root);
+    }
+
+    pub fn get(&self, key: &str) -> Option<String> {
+        self.get_inner(key, &self.root)
     }
 
     /*
@@ -112,308 +79,810 @@ impl BPlusTree {
     pub fn remove(&mut self, key: &str) -> Option<String> {
         None
     }
-
-    pub fn get(&mut self, key: &str) -> Option<String> {
-        // println!("{:?}", &self.root);
-        let leafNode = match BPlusTree::find_leaf(key, &mut self.root) {
-            Some(v) => {
-                v
-            },
-            None => {
-                return None;
-            }
-        };
-        let mut leafNode = unsafe{leafNode.as_mut()};
-        let leafNode = leafNode.as_mut().expect("should not happen");
-        // println!("{:?}", &leafNode.items);
-        for item in leafNode.items.iter() {
-            if item.key == key {
-                return Some(item.value.to_string());
-            }
-        }
-        None
-    }
 }
 
 impl BPlusTree {
-    /*
-    ** leaf: 待插入的叶子节点
-    */
-    fn insert_leaf(&mut self, key: String, value: String, leaf: &mut LeafNode) {
-        match leaf.items.iter().position(|it| {
-            key < it.key
-        }) {
-            Some(pos) => {
-                leaf.items.insert(pos, Item::new(key, value));
-            },
-            None => {
+    fn insert_inner(key: String, value: String, root: &mut Node, size: usize, isRoot: bool, firstLeaf: &mut *mut LeafNode) -> Option<Populate> {
+        match root {
+            Node::Index(node) => {
                 /*
-                ** Without the first element larger than the input key, insert it to the end
+                ** 索引节点 => 找到需要插入的页
+                **      比较每一个页中的最大值 与 待插入值进行比较
                 */
-                leaf.items.push(Item::new(key, value));
-            }
-        }
-        /*
-        ** Determine the size of the elements in the leaf node and decide whether to split
-        */
-        let len = leaf.items.len();
-        if len > self.size {
-            let k = leaf.items.get(len / 2).unwrap().key.clone();
-            let right = leaf.items.split_off(len / 2);
-            // println!("left: {:?}, right: {:?}", leaf.items, right);
-            /*
-            ** Create a right subtree
-            */
-            let mut rightLeafNode = Box::new(LeafNode{
-                index: std::ptr::null_mut(),
-                items: right.clone(),
-                next: std::ptr::null_mut()
-            });
-            /*
-            ** Create a left subtree
-            */
-            let mut leftLeafNode = Box::new(LeafNode{
-                index: std::ptr::null_mut(),
-                items: leaf.items.clone(),
-                next: &mut *rightLeafNode
-            });
-            let mut leftNode = Box::new(Node{
-                index: None,
-                leaf: Some(&mut *leftLeafNode)
-            });
-            let mut rightNode = Box::new(Node{
-                index: None,
-                leaf: Some(&mut *rightLeafNode)
-            });
-            mem::forget(leftLeafNode);
-            mem::forget(rightLeafNode);
-            /*
-            self.root = Node{
-                index: Some(*index),
-                leaf: None
-            };
-            */
-            /*
-            ** Populate the inode
-            */
-            BPlusTree::populate_the_inode(&k
-                , &mut *leftNode, &mut *rightNode, leaf.index, &mut self.root, self.size);
-            mem::forget(leftNode);
-            mem::forget(rightNode);
-        }
-    }
-
-    fn populate_the_inode(newKey: &str, mut newLeftNode: *mut Node, mut newRightNode: *mut Node, mut parent: *mut IndexNode, root: &mut Node, size: usize) {
-        /*
-        let mut newIndex = match unsafe{newIndex.as_mut()} {
-            Some(node) => node,
-            None => {
-                panic!("populate_the_inode newIndex is none, This should not happen");
-            }
-        };
-        */
-        match unsafe{parent.as_mut()} {
-            Some(index) => {
-                let pos = match index.keys.iter().position(|it| {
-                    it.as_str() > newKey
-                }) {
-                    Some(pos) => {
-                        index.keys.insert(pos, newKey.to_string());
-                        pos
+                match unsafe{node.as_mut()} {
+                    Some(index) => {
+                        /*
+                        ** 比较页中的keys, 找到待插入的 node
+                        */
+                        let childrenNode = match index.keys.iter().position(|it| {
+                            key < *it
+                        }) {
+                            Some(pos) => {
+                                /*
+                                ** 根据 pos 从 nodes 中获取指定位置的 node
+                                */
+                                match index.nodes.get_mut(pos) {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            },
+                            None => {
+                                /*
+                                ** 获取 nodes 中最后一个 node
+                                */
+                                match index.nodes.last_mut() {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            }
+                        };
+                        match unsafe{childrenNode.as_mut()} {
+                            Some(n) => {
+                                /*
+                                ** 递归插入
+                                ** 并根据返回值判断是否需要在本节点新增数据
+                                */
+                                match BPlusTree::insert_inner(key, value, n, size, false, firstLeaf) {
+                                    Some(populate) => {
+                                        /*
+                                        ** 需要新增节点
+                                        */
+                                        /*
+                                        ** 查找需要新增的节点的插入位置
+                                        */
+                                        let pos = match index.keys.iter().position(|it| {
+                                            populate.newKey.as_str() < it
+                                        }) {
+                                            Some(pos) => {
+                                                pos
+                                            },
+                                            None => {
+                                                index.keys.len()
+                                            }
+                                        };
+                                        /*
+                                        ** 插入到 keys 中
+                                        */
+                                        index.keys.insert(pos, populate.newKey.clone());
+                                        /*
+                                        ** 更新 nodes
+                                        */
+                                        index.nodes.remove(pos);
+                                        index.nodes.insert(pos, populate.newLeftNode);
+                                        index.nodes.insert(pos+1, populate.newRightNode);
+                                        /*
+                                        ** 判断是否需要分裂
+                                        */
+                                        let len = index.keys.len();
+                                        if len > size {
+                                            /*
+                                            ** 返回分裂的值
+                                            */
+                                            let keyDecidePos = len / 2;
+                                            let newIndexKey = match index.keys.get(keyDecidePos) {
+                                                Some(key) => key.to_string(),
+                                                None => {
+                                                    panic!("should not happen");
+                                                }
+                                            };
+                                            let mut leftIndexNode = Box::new(IndexNode{
+                                                keys: index.keys[0..keyDecidePos].to_vec(),
+                                                nodes: index.nodes[0..(keyDecidePos+1)].to_vec()
+                                            });
+                                            let mut rightIndexNode = Box::new(IndexNode{
+                                                keys: index.keys[(keyDecidePos+1)..].to_vec(),
+                                                nodes: index.nodes[(keyDecidePos+1)..].to_vec()
+                                            });
+                                            let leftIndex = Node::Index(&mut *leftIndexNode);
+                                            let rightIndex = Node::Index(&mut *rightIndexNode);
+                                            index.keys.remove(keyDecidePos);
+                                            let mut leftIndexBox = Box::new(leftIndex);
+                                            let mut rightIndexBox = Box::new(rightIndex);
+                                            let mut leftIndexBoxPtr: *mut Node = &mut *leftIndexBox;
+                                            let mut rightIndexBoxPtr: *mut Node = &mut *rightIndexBox;
+                                            if isRoot {
+                                                let mut newIndex = IndexNode {
+                                                    keys: vec![newIndexKey.clone()],
+                                                    nodes: vec![leftIndexBoxPtr, rightIndexBoxPtr]
+                                                };
+                                                let mut newIndexBox = Box::new(newIndex);
+                                                *root = Node::Index(&mut *newIndexBox);
+                                                mem::forget(newIndexBox);
+                                            }
+                                            mem::forget(leftIndexNode);
+                                            mem::forget(rightIndexNode);
+                                            mem::forget(leftIndexBox);
+                                            mem::forget(rightIndexBox);
+                                            return Some(Populate{
+                                                newKey: newIndexKey,
+                                                newLeftNode: leftIndexBoxPtr,
+                                                newRightNode: rightIndexBoxPtr
+                                            });
+                                        } else {
+                                            /*
+                                            ** 不需要分裂
+                                            */
+                                        }
+                                    },
+                                    None => {
+                                    }
+                                }
+                            },
+                            None => {
+                                panic!("should not happen");
+                            }
+                        }
                     },
                     None => {
-                        index.keys.push(newKey.to_string());
-                        index.nodes.len() - 1
+                        panic!("should not happen");
                     }
-                };
-                /*
-                ** Update path
-                */
-                index.nodes.remove(pos);
-                // std::mem::forget();
-                index.nodes.insert(pos, newLeftNode);
-                index.nodes.insert(pos+1, newRightNode);
-                /*
-                ** Update newIndex parent
-                */
-                // newIndex.parent = index.parent;
-                /*
-                ** Determine the size of the elements in the inode and decide whether to split
-                */
-                let len = index.keys.len();
-                if len > size {
-                    let keyDecidePos = len / 2;
-                    let newIndexKey = match index.keys.get(keyDecidePos) {
-                        Some(key) => key,
-                        None => {
-                            panic!("This should not happen");
-                        }
-                    };
-                    let newIndexKeyClone = newIndexKey.to_string();
-                    let mut leftIndexNode = Box::new(IndexNode{
-                        parent: std::ptr::null_mut(),
-                        keys: index.keys[0..keyDecidePos].to_vec(),
-                        nodes: index.nodes[0..(keyDecidePos+1)].to_vec()
-                    });
-                    let leftIndex = Node{
-                        index: Some(&mut *leftIndexNode),
-                        leaf: None
-                    };
-                    let mut rightIndexNode = Box::new(IndexNode{
-                        parent: std::ptr::null_mut(),
-                        keys: index.keys[(keyDecidePos+1)..].to_vec(),
-                        nodes: index.nodes[(keyDecidePos+1)..].to_vec()
-                    });
-                    let rightIndex = Node{
-                        index: Some(&mut *rightIndexNode),
-                        leaf: None
-                    };
-                    index.keys.remove(keyDecidePos);
-                    let mut leftIndexBox = Box::new(leftIndex);
-                    let mut rightIndexBox = Box::new(rightIndex);
-                    BPlusTree::populate_the_inode(&newIndexKeyClone, &mut *leftIndexBox, &mut *rightIndexBox, index.parent, root, size);
-                    mem::forget(leftIndexNode);
-                    mem::forget(rightIndexNode);
-                    mem::forget(leftIndexBox);
-                    mem::forget(rightIndexBox);
                 }
             },
-            None => {
-                /*
-                ** The parent node is empty
-                ** Recursive end point
-                */
-                let mut newIndex = IndexNode {
-                    parent: std::ptr::null_mut(),
-                    keys: vec![newKey.to_string()],
-                    nodes: vec![newLeftNode, newRightNode]
-                };
-                let mut newIndexBox = Box::new(newIndex);
-                parent = &mut *newIndexBox;
-                root.index = Some(parent);
-                root.leaf = None;
-                mem::forget(newIndexBox);
-                // std::mem::forget(newIndex);
-            }
-        }
-    }
-
-    fn find_leaf<'a>(key: &str, root: &'a mut Node) -> Option<*mut LeafNode> {
-        if root.index.is_some() {
-            /*
-            ** Index node
-            */
-            match root.index.as_mut() {
-                Some(indexPtr) => {
-                    let mut index = unsafe{indexPtr.as_mut()};
-                    let index = index.as_mut().expect("should not happen");
-                    match index.keys.iter().position(|it| {
-                        it.as_str() > key
-                    }) {
-                        Some(pos) => {
-                            /*
-                            ** There are nodes larger than the key
-                            ** Find the node path at this location
-                            */
-                            match index.nodes.get_mut(pos) {
-                                Some(node) => {
-                                    // println!("find node");
-                                    return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
-                                        Some(n) => n,
-                                        None => {
-                                            panic!("should not happend");
-                                        }
-                                    });
-                                },
-                                None => {
-                                    /*
-                                    ** This should not happen
-                                    */
-                                    panic!("find_leaf index.nodes.get(pos) is none, This should not happen");
-                                }
+            Node::Leaf(node) => {
+                match unsafe{node.as_mut()} {
+                    Some(leaf) => {
+                        /*
+                        ** 查找待插入的叶子节点的位置
+                        */
+                        let pos = match leaf.items.iter().position(|it| {
+                            key < it.key
+                        }) {
+                            Some(pos) => {
+                                pos
+                            },
+                            None => {
+                                /*
+                                ** 插入到最后
+                                */
+                                leaf.items.len()
                             }
-                        },
-                        None => {
+                        };
+                        leaf.items.insert(pos, Item{
+                            key: key,
+                            value: value
+                        });
+                        /*
+                        ** 判断是否分裂
+                        */
+                        let len = leaf.items.len();
+                        if len > size {
                             /*
-                            ** There are no nodes larger than the key
-                            ** Get the last path in the path list
+                            ** 叶子节点分裂
                             */
-                            // println!("not found");
-                            match index.nodes.last_mut() {
-                                Some(node) => {
-                                    return BPlusTree::find_leaf(key, match unsafe{node.as_mut()} {
-                                        Some(n) => n,
-                                        None => {
-                                            panic!("should not happend");
-                                        }
-                                    });
-                                },
-                                None => {
-                                    /*
-                                    ** The path list is empty
-                                    ** This should not happen
-                                    */
-                                    panic!("find_leaf index.nodes.last() is none, This should not happen");
-                                }
+                            /*
+                            ** 获取要提取到索引节点的key
+                            */
+                            let k = leaf.items.get(size / 2).expect("should not happen").key.clone();
+                            let right = leaf.items.split_off(size / 2 + 1);
+                            let mut rightLeafNode = Box::new(LeafNode{
+                                items: right.clone(),
+                                pre: std::ptr::null_mut(),
+                                next: leaf.next
+                            });
+                            let mut leftLeafNode = Box::new(LeafNode{
+                                items: leaf.items.clone(),
+                                pre: leaf.pre,
+                                next: &mut *rightLeafNode
+                            });
+                            if leaf.pre.is_null() {
+                                /*
+                                ** 说明第一个节点发生了分裂, 则将新的节点变为首节点
+                                */
+                                *firstLeaf = &mut *leftLeafNode;
                             }
+                            rightLeafNode.pre = &mut *leftLeafNode;
+                            let mut leftNode = Box::new(Node::Leaf(&mut *leftLeafNode));
+                            let mut rightNode = Box::new(Node::Leaf(&mut *rightLeafNode));
+                            let mut leftNodePtr: *mut Node = &mut *leftNode;
+                            let mut rightNodePtr: *mut Node = &mut *rightNode;
+                            if isRoot {
+                                let mut newIndex = IndexNode {
+                                    keys: vec![k.to_string()],
+                                    nodes: vec![leftNodePtr, rightNodePtr]
+                                };
+                                let mut newIndexBox = Box::new(newIndex);
+                                *root = Node::Index(&mut *newIndexBox);
+                                mem::forget(newIndexBox);
+                            }
+                            mem::forget(leftLeafNode);
+                            mem::forget(rightLeafNode);
+                            mem::forget(leftNode);
+                            mem::forget(rightNode);
+                            return Some(Populate{
+                                newKey: k.clone(),
+                                newLeftNode: leftNodePtr,
+                                newRightNode: rightNodePtr
+                            });
+                        } else {
+                            /*
+                            ** 不用处理
+                            */
                         }
+                    },
+                    None => {
+                        /*
+                        ** First element, insert directly
+                        */
+                        let mut leafNode = Box::new(LeafNode{
+                            items: vec![Item::new(key.clone(), value)],
+                            pre: std::ptr::null_mut(),
+                            next: std::ptr::null_mut()
+                        });
+                        *root = Node::Leaf(&mut *leafNode);
+                        mem::forget(leafNode);
                     }
-                },
-                None => {
-                    /*
-                    ** This should not happen
-                    */
-                    panic!("find_leaf root.index.is_some is true, but get none, This should not happen");
                 }
             }
-        } else {
-            return root.leaf;
-            /*
-            match root.leaf.as_mut() {
-                Some(leafPtr) => {
-                    // let leaf = unsafe{leafPtr.as_mut()}.as_mut().expect("should not happen");
-                    // return Some(leaf);
-                    return leafPtr;
-                },
-                None => {
-                    /*
-                    ** There is no data in the tree
-                    */
-                    return None;
-                }
-            }
-            */
         }
         None
     }
 
-    fn binary_find<'a>(&self, key: &str, items: &'a [Item]) -> Option<&'a Item> {
-        let mid = match items.get(items.len() / 2) {
+    /*
+    ** root: 每一次递归的根节点
+    ** indexPage: 找到的索引页, 通过该字段可以获取到左右节点的信息
+    ** pos: 找到的索引页的位置
+    ** size: self.size
+    */
+    fn remove_inner(key: &str, root: &mut Node, mut indexPage: Option<&mut IndexNode>, pos: usize, size: usize) -> RemoveResult {
+        match root {
+            Node::Index(indexPtr) => {
+                let index = match unsafe{indexPtr.as_mut()} {
+                    Some(index) => {
+                        index
+                    },
+                    None => {
+                        panic!("should not happen");
+                    }
+                };
+                /*
+                ** 遍历页中的节点, 查找节点所在位置
+                */
+                let childrenNodePos = match index.keys.iter().position(|it| {
+                    key < it
+                }) {
+                    Some(position) => {
+                        position
+                    },
+                    None => {
+                        index.nodes.len() - 1
+                    }
+                };
+                let childrenNode = match index.nodes.get_mut(childrenNodePos) {
+                    Some(n) => {
+                        n
+                    },
+                    None => {
+                        panic!("should not happen");
+                    }
+                };
+                /*
+                ** 获取节点, 并递归查找到叶子节点, 然后删除
+                */
+                let removeResult = match unsafe{childrenNode.as_mut()} {
+                    Some(node) => {
+                        BPlusTree::remove_inner(key, node, Some(index), childrenNodePos, size)
+                    },
+                    None => {
+                        panic!("should not happen");
+                    }
+                };
+                match removeResult {
+                    RemoveResult::Continue => {
+                    },
+                    RemoveResult::NotFound => {
+                        return removeResult;
+                    },
+                    RemoveResult::End => {
+                        return removeResult;
+                    }
+                }
+                /*
+                ** removeResult == RemoveResult::Continue
+                ** => 递归的结果修改了 page 节点
+                */
+                if index.keys.len() < ((size + 1) / 2) {
+                    /*
+                    ** 需要合并/借用
+                    */
+                    /*
+                    ** 判断左兄弟节点是否有富余
+                    */
+                    if pos > 0 {
+                        /*
+                        ** 判断是否存在存在索引页
+                        */
+                        match indexPage {
+                            Some(index) => {
+                                /*
+                                ** 获取左兄弟节点
+                                */
+                                let leftNodePtr = match index.nodes.get_mut(pos - 1) {
+                                    Some(p) => {
+                                        p
+                                    },
+                                    None => {
+                                        panic!("should not happed");
+                                    }
+                                };
+                                let leftNode = match unsafe{leftNodePtr.as_mut()} {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                };
+                                let leftIndexPtr = match leftNode {
+                                    Node::Index(p) => {
+                                        p
+                                    },
+                                    Node::Leaf(_) => {
+                                        /*
+                                        ** 索引节点的兄弟一定不是叶子节点
+                                        */
+                                        panic!("should not happen");
+                                    }
+                                };
+                                let leftIndex = match unsafe{leftIndexPtr.as_mut()} {
+                                    Some(leftIndex) => {
+                                        leftIndex
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                };
+                                if leftIndex.keys.len() > ((size + 1) / 2) {
+                                    /*
+                                    ** 左兄弟节点有富余
+                                    ** 1. indexPage.keys 中的 key (pos对应的key) 移除 并 添加到当前节点中
+                                    ** 2. 将左兄弟节点中的最后一个key 移除 并替换父节点移除位置的key
+                                    */
+                                } else {
+                                    /*
+                                    ** 左兄弟节点没有富余, 判断右兄弟节点是否有富余
+                                    */
+                                    if pos + 1 < index.nodes.len() {
+                                        /*
+                                        ** 右兄弟节点存在
+                                        */
+                                        let rightNodePtr = match index.nodes.get_mut(pos + 1) {
+                                            Some(p) => {
+                                                p
+                                            },
+                                            None => {
+                                                panic!("should not happen");
+                                            }
+                                        };
+                                        let rightNode = match unsafe{rightNodePtr.as_mut()} {
+                                            Some(node) => {
+                                                node
+                                            },
+                                            None => {
+                                                panic!("should not happen");
+                                            }
+                                        };
+                                        let rightIndexPtr = match rightNode {
+                                            Node::Index(p) => {
+                                                p
+                                            },
+                                            Node::Leaf(_) => {
+                                                panic!("should not happen");
+                                            }
+                                        };
+                                        let rightIndex = match unsafe{rightIndexPtr.as_mut()} {
+                                            Some(l) => {
+                                                l
+                                            },
+                                            None => {
+                                                panic!("should not happen");
+                                            }
+                                        };
+                                        if rightIndex.keys.len() > ((size + 1) / 2) {
+                                            /*
+                                            ** 左兄弟节点不富余, 但是右兄弟节点富余
+                                            ** 1. indexPage.keys 中的 key (pos对应的key) 移除 并 添加到当前节点中
+                                            ** 2. 将右兄弟节点中的第一个key 移除 并替换父节点移除位置的key
+                                            */
+                                        } else {
+                                            /*
+                                            ** 左兄弟节点不富余, 右兄弟节点也不富余
+                                            ** 随意挑选左/右节点,indexPage.keys中的key,左兄弟节点 合并
+                                            ** 并删除 indexPage.keys中的key(pos位置的key)
+                                            */
+                                        }
+                                    } else {
+                                        /*
+                                        ** 不存在右兄弟节点, 且左兄弟节点没有富余
+                                        ** 则将 当前节点,indexPage.keys中的key,左兄弟节点 合并
+                                        ** 并删除 indexPage.keys中的key(pos位置的key)
+                                        */
+                                    }
+                                }
+                            },
+                            None => {
+                                /*
+                                ** 如果没有, 则应该从根节点获取左右兄弟节点
+                                ** (位于最上层的索引节点)
+                                */
+                            }
+                        }
+                    } else {
+                        /*
+                        ** 不存在左兄弟节点, 则判断右兄弟节点是否有富余
+                        */
+                    }
+                } else {
+                    /*
+                    ** 索引节点删除结束
+                    */
+                }
+            },
+            Node::Leaf(leafPtr) => {
+                let leaf = match unsafe{leafPtr.as_mut()} {
+                    Some(leaf) => {
+                        leaf
+                    },
+                    None => {
+                        panic!("should not happen");
+                    }
+                };
+                /*
+                ** 搜索待删除的数据节点
+                */
+                match BPlusTree::binary_find(key, &leaf.items) {
+                    Some(item) => {
+                        leaf.items.remove(item.0);
+                    },
+                    None => {
+                        /*
+                        ** 找不到要删除的节点
+                        */
+                        return RemoveResult:: NotFound;
+                    }
+                }
+                /*
+                ** 检测是否需要合并/借用
+                */
+                let itemLen = leaf.items.len();
+                if itemLen < ((size + 1) / 2) {
+                    /*
+                    ** 判断是否存在索引节点
+                    */
+                    let index = match indexPage.as_mut() {
+                        Some(index) => {
+                            index
+                        },
+                        None => {
+                            /*
+                            ** 只有一个数据页, 无法进行借用或者合并
+                            */
+                            return RemoveResult::End;
+                        }
+                    };
+                    /*
+                    ** 判断左兄弟节点是否有富余的节点
+                    */
+                    if pos > 0 {
+                        /*
+                        ** 左兄弟节点存在
+                        */
+                        let leftNodePtr = match index.nodes.get_mut(pos - 1) {
+                            Some(p) => {
+                                p
+                            },
+                            None => {
+                                panic!("should not happed");
+                            }
+                        };
+                        let leftNode = match unsafe{leftNodePtr.as_mut()} {
+                            Some(node) => {
+                                node
+                            },
+                            None => {
+                                panic!("should not happen");
+                            }
+                        };
+                        let leftLeafPtr = match leftNode {
+                            Node::Leaf(leftLeafPtr) => {
+                                leftLeafPtr
+                            },
+                            Node::Index(_) => {
+                                /*
+                                ** 这里不可能会是索引节点
+                                */
+                                panic!("should not happen");
+                            }
+                        };
+                        let leftLeaf = match unsafe{leftLeafPtr.as_mut()} {
+                            Some(leftLeaf) => {
+                                leftLeaf
+                            },
+                            None => {
+                                panic!("should not happen");
+                            }
+                        };
+                        if leftLeaf.items.len() > ((size + 1) / 2) {
+                            /*
+                            ** 左兄弟节点节点富余, 当前节点借用左兄弟节点的最后一个元素到自身
+                            ** 并且需要更新 indexPage.keys 中对应位置的key值
+                            */
+                        } else {
+                            /*
+                            ** 左兄弟节点不存在富余, 判断右兄弟节点是否富余
+                            */
+                            if pos + 1 < index.nodes.len() {
+                                /*
+                                ** 右兄弟节点存在
+                                */
+                                let rightNodePtr = match index.nodes.get_mut(pos + 1) {
+                                    Some(p) => {
+                                        p
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                };
+                                let rightNode = match unsafe{rightNodePtr.as_mut()} {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                };
+                                let rightLeafPtr = match rightNode {
+                                    Node::Leaf(p) => {
+                                        p
+                                    },
+                                    Node::Index(_) => {
+                                        panic!("should not happen");
+                                    }
+                                };
+                                let rightLeaf = match unsafe{rightLeafPtr.as_mut()} {
+                                    Some(l) => {
+                                        l
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                };
+                                if rightLeaf.items.len() > ((size + 1) / 2) {
+                                    /*
+                                    ** 左兄弟节点不富余, 但是右兄弟节点富余
+                                    ** 当前节点借用右兄弟节点的第一个元素到自身
+                                    ** 并且需要更新 indexPage.keys 中对应位置的key值
+                                    */
+                                } else {
+                                    /*
+                                    ** 左兄弟节点不富余, 右兄弟节点也不富余
+                                    ** 随意挑选 左/右 节点与当前节点合并 (将当前节点放到左/右兄弟节点)
+                                    ** 然后删除 indexPage.keys pos - 1 处的 key, 并删除 nodes pos 位置的分支
+                                    */
+                                }
+                            } else {
+                                /*
+                                ** 无右兄弟节点
+                                ** 表示:
+                                **      左兄弟节点和右兄弟节点都没有富余的节点
+                                **      这里将左兄弟节点和当前节点合并 (将当前节点放到左兄弟节点)
+                                ** 然后删除 indexPage.keys 中 pos - 1 处的 key, 并删除 nodes pos 位置的分支
+                                */
+                            }
+                        }
+                    } else {
+                        /*
+                        ** 判断右兄弟节点是否有富余的节点
+                        */
+                        if pos + 1 < size - 1 {
+                            let rightNodePtr = match index.nodes.get_mut(pos + 1) {
+                                Some(p) => {
+                                    p
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            let rightNode = match unsafe{rightNodePtr.as_mut()} {
+                                Some(node) => {
+                                    node
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            let rightLeafPtr = match rightNode {
+                                Node::Leaf(p) => {
+                                    p
+                                },
+                                Node::Index(_) => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            let rightLeaf = match unsafe{rightLeafPtr.as_mut()} {
+                                Some(l) => {
+                                    l
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            if rightLeaf.items.len() > ((size + 1) / 2) {
+                                /*
+                                ** 左兄弟节点不富余, 但是右兄弟节点富余
+                                ** 当前节点借用右兄弟节点的第一个元素到自身
+                                ** 并且需要更新 indexPage.keys 中对应位置的key值
+                                */
+                            } else {
+                                /*
+                                ** 无左兄弟节点, 且右节点也不富余
+                                ** 只能将右兄弟节点与当前节点合并 (将当前节点放到右兄弟节点)
+                                ** 然后删除 indexPage.keys 中 pos (这里的 pos 一定是 0) 处的 key, 并 删除 nodes pos 位置的分支
+                                */
+                            }
+                        } else {
+                            /*
+                            ** 无左兄弟节点, 也无右兄弟节点
+                            ** => 不做处理 (在 indexPage 不为None的情况下, 这里是不会发生的)
+                            */
+                            panic!("should not happen");
+                        }
+                    }
+                } else {
+                    /*
+                    ** 删除结束
+                    */
+                }
+            }
+        }
+        RemoveResult::Continue
+    }
+
+    fn get_inner(&self, key: &str, root: &Node) -> Option<String> {
+        match root {
+            Node::Index(indexPtr) => {
+                match unsafe{indexPtr.as_mut()} {
+                    Some(index) => {
+                        /*
+                        ** 比较页中的keys, 找到key存在的 node
+                        */
+                        let childrenNode = match index.keys.iter().position(|it| {
+                            key <= it
+                        }) {
+                            Some(pos) => {
+                                /*
+                                ** 根据 pos 从 nodes 中获取指定位置的 node
+                                */
+                                match index.nodes.get_mut(pos) {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            },
+                            None => {
+                                /*
+                                ** 获取 nodes 中最后一个 node
+                                */
+                                match index.nodes.last_mut() {
+                                    Some(node) => {
+                                        node
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                }
+                            }
+                        };
+                        match unsafe{childrenNode.as_mut()} {
+                            Some(n) => {
+                                return self.get_inner(key, n);
+                            },
+                            None => {
+                                panic!("should not happen");
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+            },
+            Node::Leaf(leafPtr) => {
+                match unsafe{leafPtr.as_mut()} {
+                    Some(leaf) => {
+                        match BPlusTree::binary_find(key, &leaf.items) {
+                            Some(it) => {
+                                return Some(it.1.value.to_string());
+                            }, 
+                            None => {
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn binary_find<'a>(key: &str, items: &'a [Item]) -> Option<(usize, &'a Item)> {
+        let length = items.len() / 2;
+        let mid = match items.get(length) {
             Some(item) => {
                 item
             },
             None => {
-                return None;
+                panic!("should not happen");
             }
         };
         if mid.key.as_str() == key {
-            return Some(mid);
+            return Some((length, mid));
         } else if mid.key.as_str() > key {
-            let sub = match items.get(..(items.len() / 2)) {
+            let sub = match items.get(..length) {
                 Some(s) => s,
                 None => {
-                    return None;
+                    panic!("should not happen");
                 }
             };
-            return self.binary_find(key, sub);
+            return BPlusTree::binary_find(key, sub);
         } else {
-            let sub = match items.get((items.len() / 2)..) {
+            let sub = match items.get(length..) {
                 Some(s) => s,
                 None => {
-                    return None;
+                    panic!("should not happen");
                 }
             };
-            return self.binary_find(key, sub);
+            return BPlusTree::binary_find(key, sub);
+        }
+    }
+}
+
+impl BPlusTree {
+    fn printTree(&self, root: &Node) {
+        match root {
+            Node::Index(indexPtr) => {
+                match unsafe{indexPtr.as_mut()}.as_mut() {
+                    Some(index) => {
+                        print!("index =>\n\t");
+                        for key in index.keys.iter() {
+                            print!("{}\t", key);
+                        }
+                        print!("\n");
+                        print!("parent keys: {:?}\n", &index.keys);
+                        for node in index.nodes.iter() {
+                            match unsafe{node.as_mut()}.as_mut() {
+                                Some(nd) => {
+                                    self.printTree(nd);
+                                },
+                                None => {
+                                }
+                            }
+                        }
+                    },
+                    None => {
+                    }
+                }
+            },
+            Node::Leaf(leafPtr) => {
+                match unsafe{leafPtr.as_mut()}.as_mut() {
+                    Some(leaf) => {
+                        // println!("leaf => index: {:?}, item: {:?}", leaf.index, leaf.items);
+                        println!("leaf => item: {:?}", leaf.items);
+                    },
+                    None => {
+                    }
+                }
+            }
         }
     }
 }
@@ -422,7 +891,8 @@ impl BPlusTree {
     pub fn new(size: usize) -> Self {
         Self {
             size: size,
-            root: Node::default()
+            root: Node::default(),
+            firstLeaf: std::ptr::null_mut()
         }
     }
 }
@@ -438,21 +908,24 @@ mod test {
         btree.insert("1".to_string(), "hello".to_string());
         btree.insert("2".to_string(), "world".to_string());
         btree.insert("3".to_string(), "hello world".to_string());
-        // btree.insert("4".to_string(), "hello".to_string());
-        // btree.insert("5".to_string(), "world".to_string());
-        // btree.insert("6".to_string(), "hello world".to_string());
+        btree.insert("4".to_string(), "hello".to_string());
+        btree.insert("5".to_string(), "world".to_string());
+        btree.insert("6".to_string(), "hello world".to_string());
     }
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn getTest() {
         let mut btree = BPlusTree::new(2);
-        btree.insert("1".to_string(), "hello".to_string());
-        btree.insert("2".to_string(), "world".to_string());
-        btree.insert("3".to_string(), "hello world".to_string());
-        btree.insert("4".to_string(), "hello world".to_string());
-        btree.insert("5".to_string(), "hello world".to_string());
-        btree.insert("6".to_string(), "hello world".to_string());
+        btree.insert("1".to_string(), "v 1".to_string());
+        btree.insert("2".to_string(), "v 2".to_string());
+        btree.insert("3".to_string(), "v 3".to_string());
+        btree.insert("4".to_string(), "v 4".to_string());
+        btree.insert("5".to_string(), "v 5".to_string());
+        btree.insert("6".to_string(), "v 6".to_string());
+        btree.insert("7".to_string(), "v 7".to_string());
+        btree.insert("8".to_string(), "v 8".to_string());
+        btree.insert("9".to_string(), "v 9".to_string());
         match btree.get("3") {
             Some(v) => {
                 println!("{:?}", v);
