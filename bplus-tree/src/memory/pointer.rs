@@ -46,10 +46,15 @@ struct Populate {
     newRightNode: *mut Node
 }
 
+enum RemoveContinue {
+    Normal,
+    ParentBeRemove(Node)
+}
+
 enum RemoveResult {
     NotFound,
     End,
-    Continue
+    Continue(RemoveContinue)
 }
 
 pub struct BPlusTree {
@@ -77,7 +82,20 @@ impl BPlusTree {
     **      1. 
     */
     pub fn remove(&mut self, key: &str) -> Option<String> {
-        None
+        match BPlusTree::remove_inner(key, &mut self.root, None, 0, self.size, true) {
+            RemoveResult::NotFound => {
+                return None;
+            },
+            RemoveResult::End => {
+            },
+            RemoveResult::Continue(_) => {
+            }
+        }
+        Some(String::from(""))
+    }
+
+    pub fn print(&self) {
+        self.printTree(&self.root);
     }
 }
 
@@ -260,7 +278,7 @@ impl BPlusTree {
                             /*
                             ** 获取要提取到索引节点的key
                             */
-                            let k = leaf.items.get(size / 2).expect("should not happen").key.clone();
+                            let k = leaf.items.get(size / 2 + 1).expect("should not happen").key.clone();
                             let right = leaf.items.split_off(size / 2 + 1);
                             let mut rightLeafNode = Box::new(LeafNode{
                                 items: right.clone(),
@@ -331,7 +349,7 @@ impl BPlusTree {
     ** pos: 找到的索引页的位置
     ** size: self.size
     */
-    fn remove_inner(key: &str, root: &mut Node, mut indexPage: Option<&mut IndexNode>, pos: usize, size: usize) -> RemoveResult {
+    fn remove_inner(key: &str, root: &mut Node, mut indexPage: Option<&mut IndexNode>, pos: usize, size: usize, isRoot: bool) -> RemoveResult {
         match root {
             Node::Index(indexPtr) => {
                 let index = match unsafe{indexPtr.as_mut()} {
@@ -360,7 +378,7 @@ impl BPlusTree {
                         n
                     },
                     None => {
-                        panic!("should not happen");
+                        panic!("should not happen, index.nodes.len: {}, pos: {}", index.nodes.len(), childrenNodePos);
                     }
                 };
                 /*
@@ -368,14 +386,27 @@ impl BPlusTree {
                 */
                 let removeResult = match unsafe{childrenNode.as_mut()} {
                     Some(node) => {
-                        BPlusTree::remove_inner(key, node, Some(index), childrenNodePos, size)
+                        BPlusTree::remove_inner(key, node, Some(index), childrenNodePos, size, false)
                     },
                     None => {
                         panic!("should not happen");
                     }
                 };
                 match removeResult {
-                    RemoveResult::Continue => {
+                    RemoveResult::Continue(status) => {
+                        match status {
+                            RemoveContinue::ParentBeRemove(r) => {
+                                /*
+                                ** 递归后, 将父节点的key删除了, 需要查看是否当前节点keys是否为空
+                                ** 如果为空, 并且当前节点是根节点, 则需要更新根节点
+                                */
+                                if isRoot && index.keys.len() == 0 {
+                                    index.nodes.clear();
+                                    *root = r;
+                                }
+                            },
+                            _ => {}
+                        }
                     },
                     RemoveResult::NotFound => {
                         return removeResult;
@@ -549,25 +580,44 @@ impl BPlusTree {
                                         let indexKey = index.keys.remove(0);
                                         leftIndex.keys.push(indexKey);
                                     }
+                                    let indexNodeLen = index.nodes.len();
+                                    for i in 0..indexNodeLen {
+                                        let indexNode = index.nodes.remove(0);
+                                        leftIndex.nodes.push(indexNode);
+                                    }
                                     parentIndex.nodes.remove(pos);
+                                    return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Index(*leftIndexPtr)));
                                 }
                             } else {
                                 /*
                                 ** 不存在右兄弟节点, 且左兄弟节点没有富余
                                 ** 则将 当前节点,indexPage.keys中的key,左兄弟节点 合并
-                                **  => 将 indexPage.keys中的key 插入到左兄弟节点的末尾
+                                **  => 将 indexPage.keys中的key(最后一个key) 插入到左兄弟节点的末尾
                                 **  => 将 当前节点的所有key插入到左兄弟节点的后面
                                 ** 删除 indexPage.keys中的key(pos位置的key)
                                 ** 删除当前节点
                                 */
-                                let parentKey = parentIndex.keys.remove(pos);
+                                let parentKey = match parentIndex.keys.pop() {
+                                    Some(k) => {
+                                        k
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                };
                                 leftIndex.keys.push(parentKey);
                                 let indexKeyLen = index.keys.len();
                                 for i in 0..indexKeyLen {
                                     let indexKey = index.keys.remove(0);
                                     leftIndex.keys.push(indexKey);
                                 }
+                                let indexNodeLen = index.nodes.len();
+                                for i in 0..indexNodeLen {
+                                    let indexNode = index.nodes.remove(0);
+                                    leftIndex.nodes.push(indexNode);
+                                }
                                 parentIndex.nodes.remove(pos);
+                                return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Index(*leftIndexPtr)));
                             }
                         }
                     } else {
@@ -641,7 +691,11 @@ impl BPlusTree {
                                 while let Some(k) = index.keys.pop() {
                                     rightIndex.keys.insert(0, k);
                                 };
+                                while let Some(n) = index.nodes.pop() {
+                                    rightIndex.nodes.insert(0, n);
+                                };
                                 parentIndex.nodes.remove(pos);
+                                return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Index(*rightIndexPtr)));
                             }
                         } else {
                             /*
@@ -669,17 +723,16 @@ impl BPlusTree {
                 /*
                 ** 搜索待删除的数据节点
                 */
-                match BPlusTree::binary_find(key, &leaf.items) {
-                    Some(item) => {
-                        leaf.items.remove(item.0);
+                match leaf.items.binary_search_by(|probe| {
+                    probe.key.as_str().cmp(key)
+                }) {
+                    Ok(p) => {
+                        leaf.items.remove(p);
                     },
-                    None => {
-                        /*
-                        ** 找不到要删除的节点
-                        */
-                        return RemoveResult:: NotFound;
+                    Err(_) => {
+                        return RemoveResult::NotFound;
                     }
-                }
+                };
                 /*
                 ** 检测是否需要合并/借用
                 */
@@ -833,6 +886,7 @@ impl BPlusTree {
                                     };
                                     index.keys.remove(leftNodePos);
                                     index.nodes.remove(pos);
+                                    return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Leaf(*leftLeafPtr)));
                                 }
                             } else {
                                 /*
@@ -847,6 +901,7 @@ impl BPlusTree {
                                 };
                                 index.keys.pop();
                                 index.nodes.pop();
+                                return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Leaf(*leftLeafPtr)));
                             }
                         }
                     } else {
@@ -890,12 +945,20 @@ impl BPlusTree {
                                 /*
                                 ** 无左兄弟节点, 但是右兄弟节点富余
                                 ** 当前节点借用右兄弟节点的第一个元素到自身
-                                ** 并且需要更新 indexPage.keys 第一个key
+                                ** 并且需要更新 indexPage.keys 第一个key 为 右兄弟节点移除后的第二个key
                                 */
                                 let first = rightLeaf.items.remove(0);
                                 match index.keys.get_mut(0) {
                                     Some(k) => {
                                         *k = first.key.to_string();
+                                        *k = match rightLeaf.items.first() {
+                                            Some(v) => {
+                                                v.key.to_string()
+                                            },
+                                            None => {
+                                                panic!("should not happen");
+                                            }
+                                        };
                                     },
                                     None => {
                                         panic!("should not happen");
@@ -914,6 +977,7 @@ impl BPlusTree {
                                 };
                                 index.keys.remove(0);
                                 index.nodes.remove(0);
+                                return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Leaf(*rightLeafPtr)));
                             }
                         } else {
                             /*
@@ -930,7 +994,7 @@ impl BPlusTree {
                 }
             }
         }
-        RemoveResult::Continue
+        RemoveResult::Continue(RemoveContinue::Normal)
     }
 
     fn get_inner(&self, key: &str, root: &Node) -> Option<String> {
@@ -942,7 +1006,7 @@ impl BPlusTree {
                         ** 比较页中的keys, 找到key存在的 node
                         */
                         let childrenNode = match index.keys.iter().position(|it| {
-                            key <= it
+                            key < it
                         }) {
                             Some(pos) => {
                                 /*
@@ -981,6 +1045,7 @@ impl BPlusTree {
                         }
                     },
                     None => {
+                        panic!("should not happen");
                     }
                 }
             },
@@ -989,13 +1054,15 @@ impl BPlusTree {
                     Some(leaf) => {
                         match BPlusTree::binary_find(key, &leaf.items) {
                             Some(it) => {
-                                return Some(it.1.value.to_string());
+                                return Some(it.value.to_string());
                             }, 
                             None => {
+                                return None;
                             }
                         }
                     },
                     None => {
+                        panic!("should not happen");
                     }
                 }
             }
@@ -1003,7 +1070,18 @@ impl BPlusTree {
         None
     }
 
-    fn binary_find<'a>(key: &str, items: &'a [Item]) -> Option<(usize, &'a Item)> {
+    fn binary_find<'a>(key: &str, items: &'a [Item]) -> Option<&'a Item> {
+        let itemsLen = items.len();
+        if itemsLen == 0 {
+            return None;
+        }
+        if itemsLen == 1 {
+            if items[0].key != key {
+                return None;
+            } else {
+                return Some(&items[0]);
+            }
+        }
         let length = items.len() / 2;
         let mid = match items.get(length) {
             Some(item) => {
@@ -1014,7 +1092,7 @@ impl BPlusTree {
             }
         };
         if mid.key.as_str() == key {
-            return Some((length, mid));
+            return Some(mid);
         } else if mid.key.as_str() > key {
             let sub = match items.get(..length) {
                 Some(s) => s,
@@ -1032,6 +1110,7 @@ impl BPlusTree {
             };
             return BPlusTree::binary_find(key, sub);
         }
+        None
     }
 }
 
@@ -1102,7 +1181,7 @@ mod test {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn getTest() {
         let mut btree = BPlusTree::new(2);
         btree.insert("1".to_string(), "v 1".to_string());
@@ -1122,5 +1201,19 @@ mod test {
                 println!("not found");
             }
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn binaryFindTest() {
+        let mut items = Vec::new();
+        for i in 0..7 {
+            items.push(Item{
+                key: String::from(i.to_string()),
+                value: String::from(i.to_string())
+            });
+        }
+        let r = BPlusTree::binary_find("2", &items);
+        println!("{:?}", r);
     }
 }

@@ -1048,7 +1048,7 @@ mod test {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn getTest() {
         let mut btree = BPlusTree::new(2);
         btree.insert("1".to_string(), "v 1".to_string());
