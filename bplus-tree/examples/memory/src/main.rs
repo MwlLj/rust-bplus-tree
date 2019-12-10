@@ -58,7 +58,7 @@ fn pointerRandInsertTest() {
 }
 
 fn removePrint(btree: &mut BPlusTree, key: &str) {
-    println!("---------------remove key: {}-----------------", key);
+    println!("****************remove key: {}****************", key);
     println!("---------------befoore--------------");
     btree.print();
     btree.remove(key);
@@ -110,12 +110,12 @@ fn pointerRemoveTest() {
 }
 
 fn pointerRandNumberRemoveTest() {
-    let mut btree = BPlusTree::new(3);
+    let mut btree = BPlusTree::new(10);
     let mut keys = Vec::new();
     println!("start insert, {:?}", time::SystemTime::now());
     let mut rng = rand::thread_rng();
     let y: f64 = rng.gen();
-    let mut nums: Vec<i32> = (0..15).collect();
+    let mut nums: Vec<i32> = (0..30).collect();
     nums.shuffle(&mut rng);
     for index in nums {
         let uid = index.to_string();
@@ -144,10 +144,10 @@ fn pointerRandNumberRemoveTest() {
 }
 
 fn pointerRandUuidRemoveTest() {
-    let mut btree = BPlusTree::new(3);
+    let mut btree = BPlusTree::new(5);
     let mut keys = Vec::new();
     println!("start insert, {:?}", time::SystemTime::now());
-    for index in 0..15 {
+    for index in 0..100000 {
         let uid = uuid::Uuid::new_v4().to_string();
         btree.insert(uid.clone(), uid.clone());
         keys.push(uid.clone());
@@ -155,8 +155,8 @@ fn pointerRandUuidRemoveTest() {
     println!("end insert, {:?}", time::SystemTime::now());
     println!("start remove, {:?}", time::SystemTime::now());
     for item in keys.iter() {
-        // btree.remove(item);
-        removePrint(&mut btree, item);
+        btree.remove(item);
+        // removePrint(&mut btree, item);
     }
     println!("end remove, {:?}", time::SystemTime::now());
     println!("start query, {:?}", time::SystemTime::now());
@@ -177,6 +177,6 @@ fn main() {
     // pointerInsertTest();
     // pointerRandInsertTest();
     // pointerRemoveTest();
-    pointerRandNumberRemoveTest();
-    // pointerRandUuidRemoveTest();
+    // pointerRandNumberRemoveTest();
+    pointerRandUuidRemoveTest();
 }

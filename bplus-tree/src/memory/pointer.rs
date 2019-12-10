@@ -505,6 +505,15 @@ impl BPlusTree {
                             };
                             index.keys.insert(0, parentKey.to_string());
                             *parentKey = leftKey;
+                            let leftNd = match leftIndex.nodes.pop() {
+                                Some(n) => {
+                                    n
+                                },
+                                None => {
+                                    panic!("should not happen");
+                                }
+                            };
+                            index.nodes.insert(0, leftNd);
                         } else {
                             /*
                             ** 左兄弟节点没有富余, 判断右兄弟节点是否有富余
@@ -553,7 +562,7 @@ impl BPlusTree {
                                     ** 2. 将右兄弟节点中的第一个key 移除 并替换父节点移除位置的key
                                     */
                                     let rightKey = rightIndex.keys.remove(0);
-                                    let parentKey = match parentIndex.keys.get_mut(rightNodePos) {
+                                    let parentKey = match parentIndex.keys.get_mut(pos) {
                                         Some(k) => {
                                             k
                                         },
@@ -563,6 +572,18 @@ impl BPlusTree {
                                     };
                                     index.keys.push(parentKey.to_string());
                                     *parentKey = rightKey;
+                                    /*
+                                    *parentKey = match rightIndex.keys.first() {
+                                        Some(k) => {
+                                            k.to_string()
+                                        },
+                                        None => {
+                                            panic!("should not happen");
+                                        }
+                                    };
+                                    */
+                                    let rightNd = rightIndex.nodes.remove(0);
+                                    index.nodes.push(rightNd);
                                 } else {
                                     /*
                                     ** 左兄弟节点不富余, 右兄弟节点也不富余
@@ -573,7 +594,7 @@ impl BPlusTree {
                                     ** 删除 indexPage.keys中的key(pos位置的key)
                                     ** 删除 当前节点 (indexPage.nodes中pos位置的node)
                                     */
-                                    let parentKey = parentIndex.keys.remove(pos);
+                                    let parentKey = parentIndex.keys.remove(pos - 1);
                                     leftIndex.keys.push(parentKey);
                                     let indexKeyLen = index.keys.len();
                                     for i in 0..indexKeyLen {
@@ -677,6 +698,18 @@ impl BPlusTree {
                                 };
                                 index.keys.push(parentKey.to_string());
                                 *parentKey = rightKey;
+                                /*
+                                *parentKey = match rightIndex.keys.first() {
+                                    Some(k) => {
+                                        k.to_string()
+                                    },
+                                    None => {
+                                        panic!("should not happen");
+                                    }
+                                };
+                                */
+                                let rightNd = rightIndex.nodes.remove(0);
+                                index.nodes.push(rightNd);
                             } else {
                                 /*
                                 ** 无左兄弟节点, 右兄弟节点也不富余
@@ -864,9 +897,17 @@ impl BPlusTree {
                                     ** 并且需要更新 indexPage.keys 中 右兄弟节点所在位置的key
                                     */
                                     let first = rightLeaf.items.remove(0);
-                                    match index.keys.get_mut(rightNodePos) {
+                                    match index.keys.get_mut(pos) {
                                         Some(k) => {
-                                            *k = first.key.to_string();
+                                            // *k = first.key.to_string();
+                                            *k = match rightLeaf.items.first() {
+                                                Some(it) => {
+                                                    it.key.to_string()
+                                                },
+                                                None => {
+                                                    panic!("should not happen");
+                                                }
+                                            };
                                         },
                                         None => {
                                             panic!("should not happen");
@@ -881,24 +922,38 @@ impl BPlusTree {
                                     ** => 将当前节点移动到左兄弟节点末端
                                     ** 删除 indexPage.keys 中 左兄弟节点所在位置的 key, 并删除 nodes pos 位置的分支
                                     */
+                                    let itemLen = leaf.items.len();
+                                    for i in 0..itemLen {
+                                        let it = leaf.items.remove(0);
+                                        leftLeaf.items.push(it);
+                                    }
+                                    /*
                                     while let Some(it) = leaf.items.pop() {
                                         leftLeaf.items.push(it);
                                     };
+                                    */
                                     index.keys.remove(leftNodePos);
                                     index.nodes.remove(pos);
                                     return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Leaf(*leftLeafPtr)));
                                 }
                             } else {
                                 /*
-                                ** 无右兄弟节点
+                                ** 无右兄弟节点, 且左兄弟节点不富余
                                 ** 表示:
                                 **      左兄弟节点和右兄弟节点都没有富余的节点
                                 **      这里将左兄弟节点和当前节点合并 (将当前节点放到左兄弟节点)
                                 ** 然后删除 indexPage.keys 最后一个位置的key, 并删除 nodes 的最后一个 node
                                 */
+                                let itemLen = leaf.items.len();
+                                for i in 0..itemLen {
+                                    let it = leaf.items.remove(0);
+                                    leftLeaf.items.push(it);
+                                }
+                                /*
                                 while let Some(it) = leaf.items.pop() {
                                     leftLeaf.items.push(it);
                                 };
+                                */
                                 index.keys.pop();
                                 index.nodes.pop();
                                 return RemoveResult::Continue(RemoveContinue::ParentBeRemove(Node::Leaf(*leftLeafPtr)));
@@ -908,7 +963,10 @@ impl BPlusTree {
                         /*
                         ** 判断右兄弟节点是否有富余的节点
                         */
-                        if pos + 1 < size - 1 {
+                        if pos + 1 < index.nodes.len() {
+                            /*
+                            ** 判断是否有右兄弟节点
+                            */
                             let rightNodePtr = match index.nodes.get_mut(pos + 1) {
                                 Some(p) => {
                                     p
