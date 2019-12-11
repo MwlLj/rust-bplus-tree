@@ -5,7 +5,7 @@ use rand::prelude::*;
 use std::time;
 
 fn pointerInsertTest() {
-    let mut btree = BPlusTree::new(2);
+    let mut btree = BPlusTree::new(5);
     btree.insert("8".to_string(), "hello world 8".to_string());
     btree.insert("0".to_string(), "hello world 0".to_string());
     btree.insert("6".to_string(), "hello world 6".to_string());
@@ -21,6 +21,7 @@ fn pointerInsertTest() {
     btree.insert("11".to_string(), "hello world 11".to_string());
     /*
     */
+    btree.print();
     for index in 0..13 {
         match btree.get(&index.to_string()) {
             Some(v) => {
@@ -117,7 +118,7 @@ fn pointerRandNumberRemoveTest() {
     let y: f64 = rng.gen();
     let mut nums: Vec<i32> = (0..30).collect();
     nums.shuffle(&mut rng);
-    for index in nums {
+    for index in &nums {
         let uid = index.to_string();
         btree.insert(uid.clone(), uid.clone());
         keys.push(uid);
@@ -174,9 +175,9 @@ fn pointerRandUuidRemoveTest() {
 }
 
 fn main() {
-    // pointerInsertTest();
+    pointerInsertTest();
     // pointerRandInsertTest();
     // pointerRemoveTest();
     // pointerRandNumberRemoveTest();
-    pointerRandUuidRemoveTest();
+    // pointerRandUuidRemoveTest();
 }
