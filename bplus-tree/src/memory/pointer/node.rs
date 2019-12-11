@@ -1,14 +1,14 @@
 #[derive(Clone, Debug)]
 pub struct Item {
     pub key: String,
-    pub value: String
+    pub value: Vec<String>
 }
 
 impl Item {
     pub fn new(key: String, value: String) -> Self {
         Self {
             key: key,
-            value: value
+            value: vec![value]
         }
     }
 }

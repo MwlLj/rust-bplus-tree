@@ -6,6 +6,7 @@ use std::time;
 
 fn pointerInsertTest() {
     let mut btree = BPlusTree::new(5);
+    for i in 0..2 {
     btree.insert("8".to_string(), "hello world 8".to_string());
     btree.insert("0".to_string(), "hello world 0".to_string());
     btree.insert("6".to_string(), "hello world 6".to_string());
@@ -19,13 +20,14 @@ fn pointerInsertTest() {
     btree.insert("10".to_string(), "hello world 10".to_string());
     btree.insert("2".to_string(), "hello world 2".to_string());
     btree.insert("11".to_string(), "hello world 11".to_string());
+    }
     /*
     */
     btree.print();
     for index in 0..13 {
         match btree.get(&index.to_string()) {
             Some(v) => {
-                println!("found, key: {}, value: {}", index, v);
+                println!("found, key: {}, value: {:?}", index, v);
             },
             None => {
                 println!("key: {}, not found", index);
@@ -101,7 +103,7 @@ fn pointerRemoveTest() {
     for index in 0..13 {
         match btree.get(&index.to_string()) {
             Some(v) => {
-                println!("found, key: {}, value: {}", index, v);
+                println!("found, key: {}, value: {:?}", index, v);
             },
             None => {
                 println!("key: {}, not found", index);
@@ -134,7 +136,7 @@ fn pointerRandNumberRemoveTest() {
     for item in keys.iter() {
         match btree.get(item) {
             Some(v) => {
-                println!("find: key: {}, value: {}", item, v);
+                println!("find: key: {}, value: {:?}", item, v);
             },
             None => {
                 // println!("key: {}, not found", item);
@@ -164,7 +166,7 @@ fn pointerRandUuidRemoveTest() {
     for item in keys.iter() {
         match btree.get(item) {
             Some(v) => {
-                println!("find: key: {}, value: {}", item, v);
+                println!("find: key: {}, value: {:?}", item, v);
             },
             None => {
                 // println!("key: {}, not found", item);

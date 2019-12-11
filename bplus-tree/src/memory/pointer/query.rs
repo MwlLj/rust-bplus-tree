@@ -2,7 +2,7 @@ use super::node::*;
 use super::BPlusTree;
 
 impl BPlusTree {
-    pub fn get_inner(&self, key: &str, root: &Node) -> Option<String> {
+    pub fn get_inner(&self, key: &str, root: &Node) -> Option<Vec<String>> {
         match root {
             Node::Index(indexPtr) => {
                 match unsafe{indexPtr.as_mut()} {
@@ -59,7 +59,7 @@ impl BPlusTree {
                     Some(leaf) => {
                         match BPlusTree::binary_find(key, &leaf.items) {
                             Some(it) => {
-                                return Some(it.value.to_string());
+                                return Some(it.value.clone());
                             }, 
                             None => {
                                 return None;

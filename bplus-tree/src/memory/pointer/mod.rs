@@ -13,7 +13,7 @@ impl BPlusTree {
         // self.printTree(&self.root);
     }
 
-    pub fn get(&self, key: &str) -> Option<String> {
+    pub fn get(&self, key: &str) -> Option<Vec<String>> {
         self.get_inner(key, &self.root)
     }
 
