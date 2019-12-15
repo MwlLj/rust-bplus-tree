@@ -56,6 +56,14 @@ impl FileIndex {
                 return Err("open index file error");
             }
         };
+        let mut dataFile = FileIndex::getDataFilePath(name);
+        let mut dataFp = match fs::File::open(dataFile) {
+            Ok(f) => f,
+            Err(err) => {
+                println!("open data file error, err: {}", err);
+                return Err("open data file error");
+            }
+        };
         /*
         ** 截取前8个字节
         */
@@ -104,6 +112,7 @@ impl FileIndex {
         };
         Ok(Connect{
             fp: f,
+            dataFp: dataFp,
             header: fh,
             leafItemOneLen: leafItemOneLen,
             leafPageHeaderLen: leafPageHeaderLen
@@ -115,6 +124,12 @@ impl FileIndex {
     fn getIndexFilePath(name: &str) -> String {
         let mut indexFile = String::from(name);
         indexFile.push_str(".idx");
+        indexFile
+    }
+
+    fn getDataFilePath(name: &str) -> String {
+        let mut indexFile = String::from(name);
+        indexFile.push_str(".data");
         indexFile
     }
 }

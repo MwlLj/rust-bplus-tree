@@ -24,6 +24,7 @@ pub struct CreateOption {
 
 pub struct Connect {
     fp: fs::File,
+    dataFp: fs::File,
     header: FileHeader,
     leafItemOneLen: usize,
     leafPageHeaderLen: usize
@@ -45,7 +46,7 @@ impl FileIndex {
 impl Connect {
     pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), &str> {
         // println!("--------------{}---------------", &key);
-        match Connect::insert_inner(key, value, &mut self.fp, &mut self.header, true) {
+        match Connect::insert_inner(key, value, &mut self.fp, &mut self.dataFp, &mut self.header, true) {
             Ok(_) => {
                 Ok(())
             },
@@ -186,6 +187,7 @@ impl FileIndex {
 }
 
 mod fileopt;
+mod dataopt;
 mod create;
 mod insert;
 mod node;

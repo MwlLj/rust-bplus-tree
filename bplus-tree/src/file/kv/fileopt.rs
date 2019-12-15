@@ -120,3 +120,26 @@ pub fn updateLeafNode<'a>(file: &mut fs::File, data: &'a [u8], leafPageStartPos:
     let position = leafPageStartPos + leafPageHeaderLen + pos * itemLen;
     writeDataToPos(file, data, SeekFrom::Start(position as u64))
 }
+
+pub fn updateLeafNodeByObj(file: &mut fs::File, item: &LeafItem, nodePos: &NodePos, pos: usize, leafPageHeaderLen: usize, itemLen: usize) -> Result<(), &str> {
+}
+
+/*
+** 加载叶子页数据
+*/
+pub fn loadLeafPage(file: &mut fs::File, pos: &NodePos) -> Option<LeafNode> {
+    let take = match fileTake(file, pos.startPos, pos.endPos - pos.startPos) {
+        Some(t) => t,
+        None => {
+            return None;
+        }
+    };
+    let leafNode: LeafNode = match bincode::deserialize(&take.content) {
+        Ok(ln) => ln,
+        Err(err) => {
+            println!("deserde leaf node error, err: {}", err);
+            return None;
+        }
+    };
+    Some(leafNode)
+}

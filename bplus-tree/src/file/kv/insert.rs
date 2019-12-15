@@ -15,14 +15,40 @@ pub enum InsertCode {
 }
 
 impl Connect {
-    pub fn insert_inner(key: &[u8], value: &[u8], file: &mut fs::File, header: &mut FileHeader, isRoot: bool) -> Result<Populate, InsertCode> {
+    pub fn insert_inner(key: &[u8], value: &[u8], file: &mut fs::File, dataFile: &mut fs::File, header: &mut FileHeader, isRoot: bool) -> Result<Populate, InsertCode> {
         match &header.root {
             Node::Index(nodePos) => {
             },
             Node::Leaf(nodePos) => {
-                let nodeLen = nodePos.endPos - nodePos.startPos;
-                match fileopt::fileTake(file, nodePos.startPos, nodeLen) {
+                match fileopt::loadLeafPage(file, nodePos) {
                     Some(leaf) => {
+                        /*
+                        ** 加载叶子页
+                        */
+                        /*
+                        ** 查找待插入的叶子节点的位置
+                        */
+                        let itemsLen = leaf.items.len();
+                        let pos = match leaf.items.iter().position(|it| {
+                            key < it.key
+                        }) {
+                            Some(pos) => {
+                                pos
+                            },
+                            None => {
+                                /*
+                                ** 插入到最后
+                                */
+                                leaf.items.len()
+                            }
+                        };
+                        /*
+                        leaf.items.insert(pos, Item{
+                            key: key,
+                            value: vec![value]
+                        });
+                        */
+                        // fileopt::updateLeafNode(file, data, leafPageStartPos, leafPageEndPos, pos, leafPageHeaderLen, itemLen);
                     },
                     None => {
                         /*
@@ -34,10 +60,14 @@ impl Connect {
                             match leafNode.items.first_mut() {
                                 Some(it) => {
                                     it.key = key.to_vec();
-                                    /*
-                                    ** to do .....................
-                                    */
-                                    // it.value = 
+                                    match dataopt::newLeafItemData(dataFile, value) {
+                                        Some(np) => {
+                                            it.value = np;
+                                        },
+                                        None => {
+                                            println!("newLeafItemData error");
+                                        }
+                                    }
                                 },
                                 None => {
                                     panic!("should not happen");
