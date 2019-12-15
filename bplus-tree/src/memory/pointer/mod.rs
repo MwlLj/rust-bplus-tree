@@ -9,7 +9,7 @@ pub struct BPlusTree {
 impl BPlusTree {
     pub fn insert(&mut self, key: String, value: String) {
         // println!("--------------{}---------------", &key);
-        BPlusTree::insert_inner(key, value, &mut self.root, self.size, true, &mut self.firstLeaf);
+        BPlusTree::insert_inner(key, value, &mut self.root, None, 0, self.size, true, &mut self.firstLeaf);
         // self.printTree(&self.root);
     }
 

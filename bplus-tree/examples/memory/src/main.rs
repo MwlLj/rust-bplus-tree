@@ -6,6 +6,97 @@ use std::time;
 
 fn pointerInsertTest() {
     let mut btree = BPlusTree::new(5);
+    btree.insert("8".to_string(), "hello world 8".to_string());
+    btree.insert("0".to_string(), "hello world 0".to_string());
+    btree.insert("6".to_string(), "hello world 6".to_string());
+    btree.insert("1".to_string(), "hello world 1".to_string());
+    btree.insert("3".to_string(), "hello world 3".to_string());
+    btree.insert("12".to_string(), "hello world 12".to_string());
+    btree.insert("4".to_string(), "hello world 4".to_string());
+    btree.insert("5".to_string(), "hello world 5".to_string());
+    btree.insert("7".to_string(), "hello world 7".to_string());
+    btree.insert("9".to_string(), "hello world 9".to_string());
+    btree.insert("10".to_string(), "hello world 10".to_string());
+    btree.insert("2".to_string(), "hello world 2".to_string());
+    btree.insert("11".to_string(), "hello world 11".to_string());
+    /*
+    */
+    btree.print();
+    for index in 0..13 {
+        match btree.get(&index.to_string()) {
+            Some(v) => {
+                println!("found, key: {}, value: {:?}", index, v);
+            },
+            None => {
+                println!("key: {}, not found", index);
+            }
+        }
+    }
+}
+
+fn insertPrint(btree: &mut BPlusTree, value: &str) {
+    println!("-----------insert: {}------------", value);
+    btree.insert(value.to_string(), value.to_string());
+    btree.print();
+    println!("---------------------------------");
+}
+
+fn pointerInsertByOrderTest() {
+    let mut btree = BPlusTree::new(3);
+    insertPrint(&mut btree, "0");
+    insertPrint(&mut btree, "1");
+    insertPrint(&mut btree, "2");
+    insertPrint(&mut btree, "3");
+    insertPrint(&mut btree, "4");
+    insertPrint(&mut btree, "5");
+    insertPrint(&mut btree, "6");
+    insertPrint(&mut btree, "7");
+    insertPrint(&mut btree, "8");
+    insertPrint(&mut btree, "9");
+    /*
+    */
+    // btree.print();
+    for index in 0..10 {
+        match btree.get(&index.to_string()) {
+            Some(v) => {
+                println!("found, key: {}, value: {:?}", index, v);
+            },
+            None => {
+                println!("key: {}, not found", index);
+            }
+        }
+    }
+}
+
+fn pointerInsertByOrderDescTest() {
+    let mut btree = BPlusTree::new(3);
+    insertPrint(&mut btree, "9");
+    insertPrint(&mut btree, "8");
+    insertPrint(&mut btree, "7");
+    insertPrint(&mut btree, "6");
+    insertPrint(&mut btree, "5");
+    insertPrint(&mut btree, "4");
+    insertPrint(&mut btree, "3");
+    insertPrint(&mut btree, "2");
+    insertPrint(&mut btree, "1");
+    insertPrint(&mut btree, "0");
+    /*
+    */
+    // btree.print();
+    for index in 0..10 {
+        match btree.get(&index.to_string()) {
+            Some(v) => {
+                println!("found, key: {}, value: {:?}", index, v);
+            },
+            None => {
+                println!("key: {}, not found", index);
+            }
+        }
+    }
+}
+
+fn pointerInsertWithRepeatTest() {
+    let mut btree = BPlusTree::new(5);
     for i in 0..2 {
     btree.insert("8".to_string(), "hello world 8".to_string());
     btree.insert("0".to_string(), "hello world 0".to_string());
@@ -177,9 +268,12 @@ fn pointerRandUuidRemoveTest() {
 }
 
 fn main() {
-    pointerInsertTest();
+    // pointerInsertTest();
+    // pointerInsertWithRepeatTest();
     // pointerRandInsertTest();
     // pointerRemoveTest();
     // pointerRandNumberRemoveTest();
     // pointerRandUuidRemoveTest();
+    // pointerInsertByOrderTest();
+    pointerInsertByOrderDescTest();
 }
