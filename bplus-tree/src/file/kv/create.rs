@@ -49,15 +49,15 @@ impl FileIndex {
         ** 3. 根据文件头的长度获取文件头信息
         */
         let mut indexFile = FileIndex::getIndexFilePath(name);
-        let mut f = match fs::File::open(indexFile) {
+        let mut f = match fs::OpenOptions::new().create(true).write(true).read(true).open(indexFile) {
             Ok(f) => f,
             Err(err) => {
-                println!("open file error, err: {}", err);
+                println!("open idx file error, err: {}", err);
                 return Err("open index file error");
             }
         };
         let mut dataFile = FileIndex::getDataFilePath(name);
-        let mut dataFp = match fs::File::open(dataFile) {
+        let mut dataFp = match fs::OpenOptions::new().create(true).write(true).read(true).open(dataFile) {
             Ok(f) => f,
             Err(err) => {
                 println!("open data file error, err: {}", err);
@@ -97,7 +97,7 @@ impl FileIndex {
                 return Err("deserialize file header error");
             }
         };
-        // println!("{:?}", fh);
+        // println!("fh: {:?}", fh);
         let leafItemOneLen = match LeafItem::oneLen(fh.keyMax) {
             Some(l) => l,
             None => {

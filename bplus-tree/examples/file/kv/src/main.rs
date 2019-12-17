@@ -6,7 +6,14 @@ fn insertTest() {
         keyMax: 64,
         pageSize: 64 * 1024
     });
-    fileIndex.open("test");
+    let mut conn = match fileIndex.open("test") {
+        Ok(c) => c,
+        Err(err) => {
+            println!("open error");
+            return;
+        }
+    };
+    conn.insert("1".as_bytes(), "1".as_bytes());
 }
 
 fn main() {

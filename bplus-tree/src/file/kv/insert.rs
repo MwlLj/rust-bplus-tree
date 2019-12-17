@@ -15,12 +15,12 @@ pub enum InsertCode {
 }
 
 impl Connect {
-    pub fn insert_inner(key: &[u8], value: &[u8], file: &mut fs::File, dataFile: &mut fs::File, header: &mut FileHeader, isRoot: bool) -> Result<Populate, InsertCode> {
+    pub fn insert_inner(key: &[u8], value: &[u8], file: &mut fs::File, dataFile: &mut fs::File, header: &mut FileHeader, isRoot: bool, leafPageHeaderLen: usize, leafItemOneLen: usize) -> Result<Populate, InsertCode> {
         match &header.root {
             Node::Index(nodePos) => {
             },
             Node::Leaf(nodePos) => {
-                match fileopt::loadLeafPage(file, nodePos) {
+                match fileopt::loadLeafPage(file, nodePos, leafPageHeaderLen, leafItemOneLen) {
                     Some(leaf) => {
                         /*
                         ** 加载叶子页
@@ -30,7 +30,7 @@ impl Connect {
                         */
                         let itemsLen = leaf.items.len();
                         let pos = match leaf.items.iter().position(|it| {
-                            key < it.key
+                            key < it.key.as_slice()
                         }) {
                             Some(pos) => {
                                 pos
@@ -56,31 +56,32 @@ impl Connect {
                         ** 说明是第一次插入
                         ** => 直接分配空间, 并插入
                         */
-                        let leafNodePos = match fileopt::newLeafPage(file, header, |mut leafNode| -> LeafNode {
-                            match leafNode.items.first_mut() {
-                                Some(it) => {
-                                    it.key = key.to_vec();
-                                    match dataopt::newLeafItemData(dataFile, value) {
-                                        Some(np) => {
-                                            it.value = np;
-                                        },
-                                        None => {
-                                            println!("newLeafItemData error");
-                                        }
-                                    }
+                        let leafNodePos = match fileopt::newLeafPage(file, header, |mut leafNode| -> Option<LeafNode> {
+                            match dataopt::newLeafItemData(dataFile, value) {
+                                Some(np) => {
+                                    leafNode.set(key, np, 0, header.keyMax);
                                 },
                                 None => {
-                                    panic!("should not happen");
+                                    println!("newLeafItemData error");
+                                    return None;
                                 }
                             }
-                            leafNode
+                            Some(leafNode)
                         }) {
                             Some(p) => p,
                             None => {
                                 return Err(InsertCode::Error);
                             }
                         };
+                        // println!("{:?}", &leafNodePos);
                         header.root = Node::Leaf(leafNodePos);
+                        /*
+                        ** 更新文件头
+                        */
+                        if let Err(err) = fileopt::updateFileHeader(file, header) {
+                            println!("fileopt updateFileHeader error");
+                            return Err(InsertCode::Error);
+                        };
                     }
                 }
             }

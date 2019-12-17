@@ -46,7 +46,7 @@ impl FileIndex {
 impl Connect {
     pub fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), &str> {
         // println!("--------------{}---------------", &key);
-        match Connect::insert_inner(key, value, &mut self.fp, &mut self.dataFp, &mut self.header, true) {
+        match Connect::insert_inner(key, value, &mut self.fp, &mut self.dataFp, &mut self.header, true, self.leafPageHeaderLen, self.leafItemOneLen) {
             Ok(_) => {
                 Ok(())
             },
