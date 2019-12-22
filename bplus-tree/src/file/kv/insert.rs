@@ -21,7 +21,7 @@ impl Connect {
             },
             Node::Leaf(nodePos) => {
                 match fileopt::loadLeafPage(file, nodePos, leafPageHeaderLen, leafItemOneLen) {
-                    Some(leaf) => {
+                    Some(mut leaf) => {
                         /*
                         ** 加载叶子页
                         */
@@ -42,6 +42,21 @@ impl Connect {
                                 leaf.items.len()
                             }
                         };
+                        /*
+                        ** 创建数据
+                        */
+                        match dataopt::newLeafItemData(dataFile, value) {
+                            Some(np) => {
+                                leaf.set(key, np, pos, header.keyMax);
+                            },
+                            None => {
+                                println!("newLeafItemData error");
+                                return Err(InsertCode::Error);
+                            }
+                        }
+                        /*
+                        ** 将更新后的数据, 覆盖文件的指定区域
+                        */
                         /*
                         leaf.items.insert(pos, Item{
                             key: key,
