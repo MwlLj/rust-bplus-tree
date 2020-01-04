@@ -14,6 +14,7 @@ fn insertTest() {
         }
     };
     conn.insert("1".as_bytes(), "1".as_bytes());
+    conn.insert("2".as_bytes(), "2".as_bytes());
 }
 
 fn main() {

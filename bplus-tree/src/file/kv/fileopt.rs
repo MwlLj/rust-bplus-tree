@@ -178,6 +178,28 @@ pub fn updateLeafNodeByObj<'a>(file: &mut fs::File, item: &'a LeafItem, nodePos:
     Ok(())
 }
 
+pub fn updateLeafNodeByLeafNode<'a>(file: &mut fs::File, leaf: &'a LeafNode, nodePos: &NodePos, pos: usize, leafPageHeaderLen: usize, itemLen: usize) -> Result<(), &'a str> {
+    /*
+    ** 将 leaf 序列化为 [u8]
+    */
+    let content = match bincode::serialize(leaf) {
+        Ok(c) => c,
+        Err(err) => {
+            println!("serde new leaf page error");
+            return Err("leafNode serde error");
+        }
+    };
+    match updateLeafNode(file, content.as_slice(), nodePos.startPos, nodePos.endPos, pos, leafPageHeaderLen, itemLen) {
+        Ok(()) => {
+        },
+        Err(err) => {
+            println!("updateLeafNode error, err: {}", err);
+            return Err("updateLeafNode error");
+        }
+    }
+    Ok(())
+}
+
 /*
 ** 加载叶子页数据
 */

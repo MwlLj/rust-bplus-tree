@@ -57,13 +57,9 @@ impl Connect {
                         /*
                         ** 将更新后的数据, 覆盖文件的指定区域
                         */
-                        /*
-                        leaf.items.insert(pos, Item{
-                            key: key,
-                            value: vec![value]
-                        });
-                        */
-                        // fileopt::updateLeafNode(file, data, leafPageStartPos, leafPageEndPos, pos, leafPageHeaderLen, itemLen);
+                        if let Err(err) = fileopt::updateLeafNodeByLeafNode(file, &leaf, nodePos, pos, leafPageHeaderLen, leafItemOneLen) {
+                            return Err(InsertCode::Error);
+                        }
                     },
                     None => {
                         /*
