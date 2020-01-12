@@ -43,22 +43,30 @@ impl Connect {
                             }
                         };
                         /*
-                        ** 创建数据
+                        ** 判断是否需要分裂
                         */
-                        match dataopt::newLeafItemData(dataFile, value) {
-                            Some(np) => {
-                                leaf.set(key, np, pos, header.keyMax);
-                            },
-                            None => {
-                                println!("newLeafItemData error");
+                        println!("itemLen: {}, headerSize: {}", itemsLen, header.size);
+                        if itemsLen + 1 > header.size {
+                            println!("split");
+                        } else {
+                            /*
+                            ** 创建数据
+                            */
+                            match dataopt::newLeafItemData(dataFile, value) {
+                                Some(np) => {
+                                    leaf.set(key, np, pos, header.keyMax);
+                                },
+                                None => {
+                                    println!("newLeafItemData error");
+                                    return Err(InsertCode::Error);
+                                }
+                            }
+                            /*
+                            ** 将更新后的数据, 覆盖文件的指定区域
+                            */
+                            if let Err(err) = fileopt::updateLeafNodeByLeafNode(file, &leaf, nodePos, pos, leafPageHeaderLen, leafItemOneLen) {
                                 return Err(InsertCode::Error);
                             }
-                        }
-                        /*
-                        ** 将更新后的数据, 覆盖文件的指定区域
-                        */
-                        if let Err(err) = fileopt::updateLeafNodeByLeafNode(file, &leaf, nodePos, pos, leafPageHeaderLen, leafItemOneLen) {
-                            return Err(InsertCode::Error);
                         }
                     },
                     None => {
